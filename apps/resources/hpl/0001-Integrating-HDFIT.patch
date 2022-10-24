@@ -1,0 +1,275 @@
+diff -ruN hpl-2.3/README HDFIT.HPL/README
+--- hpl-2.3/README	1970-01-01 05:00:00.000000000 +0000
++++ HDFIT.HPL/README	1970-01-01 00:00:00.000000000 +0000
+@@ -1,32 +0,0 @@
+-==============================================================
+- High Performance Computing Linpack Benchmark (HPL)
+- HPL - 2.3 - December 2, 2018
+-==============================================================
+-
+- HPL is a software package that solves a (random) dense linear
+- system  in   double  precision  (64   bits)   arithmetic   on 
+- distributed-memory  computers.   It can thus be regarded as a
+- portable as well as  freely  available implementation  of the
+- High Performance Computing Linpack Benchmark.
+-
+- The  HPL  software  package requires the availibility on your
+- system of an implementation of the  Message Passing Interface
+- MPI  (1.1 compliant).  An  implementation of either the Basic
+- Linear Algebra Subprograms  BLAS  or the  Vector Signal Image
+- Processing Library VSIPL is also needed.  Machine-specific as
+- well as generic implementations of MPI, the  BLAS  and  VSIPL
+- are available for a large variety of systems.
+-
+- Install See the file INSTALL in this directory.
+- -------
+-
+- Tuning  See the file TUNING in this directory.
+- ------
+-
+- Bugs  Known  problems and bugs with this release are documen-
+- ----  ted in the file hpl/BUGS.
+-
+- Check out  the website  www.netlib.org/benchmark/hpl  for the
+- latest information.
+-
+-==============================================================
+diff -ruN hpl-2.3/README.md HDFIT.HPL/README.md
+--- hpl-2.3/README.md	1970-01-01 00:00:00.000000000 +0000
++++ HDFIT.HPL/README.md	2022-09-23 07:42:57.442075473 +0000
+@@ -0,0 +1,68 @@
++# Important Information for HDFIT Integration
++
++This version of HPL is instrumented to perform fault injection based on the custom HDFIT OpenBLAS library. Here we describe the
++overall compilation and execution process.
++
++## Compilation
++
++Compiling this is the same as compiling the normal HPL benchmark - for most use cases, the following commands will work well:
++
++```
++./configure LDFLAGS="-LPATH_TO_CUSTOM_OPENBLAS_LIB" LIBS="-lopenblas"
++make
++```
++
++Replace __PATH\_TO\_CUSTOM\_OPENBLAS\_LIB__ with the path to the main OpenBLAS directory. Save for MPI, HPL does not have any additional dependencies.
++
++## Running Experiments
++
++This distribution comes with two different sample configurations:
++
++* A small configuration (__HPL.dat__ within in.small directory)
++* A larger configuration (__HPL.dat__ within in.large directory)
++
++Here is an example for the execution of a small HPL run:
++
++```
++cd in.small
++OMP_NUM_THREADS=1 mpirun -np 1 ../testing/xhpl HPL.dat
++```
++
++Each of the sample input configurations comes with a corresponding shell script for testing purposes (e.g., __HPL-test-small.env__ for the small HPL configuration). These are meant to be used in conjunction with the HDFIT runner script for HPC applications.
++
++# High-Performance Linpack
++
++```
++==============================================================
++ High Performance Computing Linpack Benchmark (HPL)
++ HPL - 2.3 - December 2, 2018
++==============================================================
++
++ HPL is a software package that solves a (random) dense linear
++ system  in   double  precision  (64   bits)   arithmetic   on
++ distributed-memory  computers.   It can thus be regarded as a
++ portable as well as  freely  available implementation  of the
++ High Performance Computing Linpack Benchmark.
++
++ The  HPL  software  package requires the availibility on your
++ system of an implementation of the  Message Passing Interface
++ MPI  (1.1 compliant).  An  implementation of either the Basic
++ Linear Algebra Subprograms  BLAS  or the  Vector Signal Image
++ Processing Library VSIPL is also needed.  Machine-specific as
++ well as generic implementations of MPI, the  BLAS  and  VSIPL
++ are available for a large variety of systems.
++
++ Install See the file INSTALL in this directory.
++ -------
++
++ Tuning  See the file TUNING in this directory.
++ ------
++
++ Bugs  Known  problems and bugs with this release are documen-
++ ----  ted in the file hpl/BUGS.
++
++ Check out  the website  www.netlib.org/benchmark/hpl  for the
++ latest information.
++
++==============================================================
++```
+diff -ruN hpl-2.3/testing/faultInjector.h HDFIT.HPL/testing/faultInjector.h
+--- hpl-2.3/testing/faultInjector.h	1970-01-01 00:00:00.000000000 +0000
++++ HDFIT.HPL/testing/faultInjector.h	2022-09-23 07:42:57.462075472 +0000
+@@ -0,0 +1,46 @@
++/*
++ * Copyright (C) 2022 Intel Corporation
++ * Licensed under the terms of the HPL License
++ * See <https://netlib.org/benchmark/hpl/copyright.html>
++ */
++
++#ifndef INTERFACE_FAULTINJECTOR_H_
++#define INTERFACE_FAULTINJECTOR_H_
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define BLASFIOPSCNT_ENV_VAR "BLASFI_OPSCNT"
++
++#define BLASFIMODE_ENV_VAR "BLASFI_MODE"
++#define BLASFIMODE_NONE_CONST "NONE"
++#define BLASFIMODE_TRANSIENT_CONST "TRANSIENT"
++#define BLASFIMODE_PERMANENT_CONST "PERMANENT"
++
++#define BLASFICORRUPTION_ENV_VAR "BLASFI_CORRUPTION"
++#define BLASFICORRUPTION_NONE_CONST "NONE"
++#define BLASFICORRUPTION_STUCKHIGH_CONST "STUCKHIGH"
++#define BLASFICORRUPTION_STUCKLOW_CONST "STUCKLOW"
++#define BLASFICORRUPTION_FLIP_CONST "FLIP"
++
++#define BLASFIBITS_ENV_VAR "BLASFI_BITS"
++#define BLASFIBITS_NONE_CONST "NONE"
++#define BLASFIBITS_EVERYWHERE_CONST "EVERYWHERE"
++#define BLASFIBITS_MANTISSA_CONST "MANTISSA"
++
++#define BLASFIOUTPUT_ENV_VAR "BLASFI_OUTPUT"
++#define BLASFIOUTPUT_STDOUT_CONST "STDOUT"
++#define BLASFIOUTPUT_STDERR_CONST "STDERR"
++
++extern int blasFiInit(int rank);
++extern int blasFiSet();
++extern int blasFiClose();
++extern void blasFiPrint();
++
++#ifdef __cplusplus
++}
++#endif
++
++
++#endif /* INTERFACE_FAULTINJECTOR_H_ */
+diff -ruN hpl-2.3/testing/ptest/HPL_pddriver.c HDFIT.HPL/testing/ptest/HPL_pddriver.c
+--- hpl-2.3/testing/ptest/HPL_pddriver.c	1970-01-01 05:00:00.000000000 +0000
++++ HDFIT.HPL/testing/ptest/HPL_pddriver.c	2022-09-23 07:42:57.462075472 +0000
+@@ -5,6 +5,7 @@
+  *    University of Tennessee, Knoxville                                
+  *    Innovative Computing Laboratory                                 
+  *    (C) Copyright 2000-2008 All Rights Reserved                       
++ *    Copyright (C) 2022 Intel Corporation (HDFIT components)
+  *                                                                      
+  * -- Copyright notice and Licensing terms:                             
+  *                                                                      
+@@ -49,6 +50,52 @@
+  */
+ #include "hpl.h"
+ 
++//--------------------------------------------------------------------------------------------
++#include "../faultInjector.h"
++#include <unistd.h>
++#include <signal.h>
++
++int chosenForFi;
++
++void fiAbortHandler(int sig)
++{
++  blasFiPrint();
++  exit(sig);
++}
++
++// returns
++//      negative on error
++//      0 if this mpi rank does no fi
++//      else this rank does fi
++static int rankChooseForFi(int mpiSize, int mpiRank, MPI_Comm comm)
++{
++  if (0 >= mpiSize) {
++    printf("mpiSize <= 0\n");
++    return -1;
++  }
++
++  int mpiRankFi = -1;
++  if (0 == mpiRank) {
++    // Assuming srand was called in blasFiInit()
++    // coverity[DC.WEAK_CRYPTO]
++    mpiRankFi = rand() % mpiSize;
++  }
++
++  if (MPI_Bcast(&mpiRankFi, 1, MPI_INT, 0, comm) != MPI_SUCCESS) {
++    printf("Rank %d, failed to broadcast FI rank\n", mpiRank);
++    return -1;
++  }
++
++  if (mpiSize < mpiRankFi) {
++    printf("mpiRankFi larger than mpiSize\n");
++    return -1;
++  }
++
++  return (mpiRankFi == mpiRank);
++}
++//--------------------------------------------------------------------------------------------
++
++
+ #ifdef STDC_HEADERS
+ int main
+ (
+@@ -112,6 +159,29 @@
+ #endif
+    MPI_Comm_rank( MPI_COMM_WORLD, &rank );
+    MPI_Comm_size( MPI_COMM_WORLD, &size );
++
++//--------------------------------------------------------------------------------------------
++  if (blasFiInit(rank))
++  {
++    printf("blasFiInit failed\n");
++    exit(1);
++  }
++  chosenForFi = rankChooseForFi(size, rank, MPI_COMM_WORLD);
++  if (0 > chosenForFi)
++  {
++    printf("rankChooseForFi failed\n");
++    exit(1);
++  }
++  if(chosenForFi && blasFiSet())
++  {
++    printf("blasFiSet failed\n");
++    exit(1);
++  }
++
++  signal(SIGSEGV, fiAbortHandler);
++  signal(SIGTERM, fiAbortHandler);
++//--------------------------------------------------------------------------------------------
++
+ /*
+  * Read and check validity of test parameters from input file
+  *
+@@ -280,13 +350,19 @@
+       if( ( test.outfp != stdout ) && ( test.outfp != stderr ) )
+          (void) fclose( test.outfp );
+    }
++
++//--------------------------------------------------------------------------------------------
++      blasFiPrint();
++//--------------------------------------------------------------------------------------------
++
+ #ifdef HPL_CALL_VSIPL
+    vsip_finalize((void*)0);
+ #endif
+    MPI_Finalize();
+-   exit( 0 );
+-
+-   return( 0 );
++//--------------------------------------------------------------------------------------------
++   exit(test.kfail > 0 ? 1 : 0);
++   return test.kfail > 0 ? 1 : 0;
++//--------------------------------------------------------------------------------------------
+ /*
+  * End of main
+  */

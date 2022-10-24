@@ -1,0 +1,264 @@
+From ccb7cc8cc9984e4c220c8be28b7356d6da0c1aa0 Mon Sep 17 00:00:00 2001
+From: "Netti, Alessio" <alessio.netti@intel.com>
+Date: Fri, 15 Jul 2022 08:18:24 +0200
+Subject: [PATCH] Integrating HDFIT
+
+---
+ README.md       | 53 ++++++++++++++++++++++++++++
+ faultInjector.h | 45 ++++++++++++++++++++++++
+ remhos.cpp      | 92 +++++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 190 insertions(+)
+ create mode 100644 faultInjector.h
+
+diff --git a/README.md b/README.md
+index 0d97aa4..349e81a 100644
+--- a/README.md
++++ b/README.md
+@@ -9,6 +9,59 @@
+ [![Build Status](https://travis-ci.org/CEED/Remhos.svg?branch=master)](https://travis-ci.org/CEED/Remhos)
+ [![Build and Test (GH Actions)](https://github.com/CEED/Remhos/workflows/build-and-test-remhos/badge.svg?branch=master)](https://github.com/CEED/Remhos/actions?query=workflow%3Abuild-and-test-remhos)
+ 
++# Important Information for HDFIT Integration
++
++This version of Remhos is instrumented to perform fault injection based on the custom HDFIT OpenBLAS library. Here we describe the
++overall compilation and execution process.
++
++## Compilation
++
++Compilation is the same as in the standard Remhos distribution, and involves compiling the MFEM, Metis and Hypre dependencies manually before
++the Remhos mini-app itself. For compiling Metis, please refer to the standard instructions further below. Please note that there's no need to
++use Metis 4.0 specifically, and employing the more recent 5.0 version will work just as well. After compiling Metis, you can proceed with Hypre
++and MFEM, both of which rely on BLAS implementations. In order to compile Hypre, proceed with the following steps:
++
++```
++git clone https://github.com/hypre-space/hypre
++cd hypre/src
++./configure --disable-fortran --with-blas-lib="-LPATH_TO_CUSTOM_OPENBLAS_LIB -lopenblas" --with-lapack-lib="-LPATH_TO_CUSTOM_OPENBLAS_LIB -lopenblas"
++make -j 8
++cd ../..
++```
++
++In the above and in the following, __PATH\_TO\_CUSTOM\_OPENBLAS\_LIB__ is to be replaced with the path to the main OpenBLAS directory.
++After Hypre is compiled successfully, proceed with MFEM:
++
++```
++git clone https://github.com/mfem/mfem.git
++cd mfem
++make config MFEM_USE_LAPACK=YES MFEM_USE_MPI=YES MFEM_USE_METIS=YES MFEM_USE_METIS_5=YES LAPACK_LIB="-LPATH_TO_CUSTOM_OPENBLAS_LIB -lopenblas" METIS_LIB="-L@MFEM_DIR@/../metis/build/Linux-x86_64/libmetis -lmetis" METIS_OPT="-I@MFEM_DIR@/../metis/include"
++make all -j 8
++```
++
++In the above, we assume that metis was installed at the same level as MFEM, under __metis__. Finally, Remhos itself can be compiled:
++
++```
++cd ../remhos
++make -j 8
++```
++
++## Running Experiments
++
++This distribution comes with two different sample configurations, implementing __remap__ and __transport__ simulation runs respectively.
++Remohos does not require any external input files, and all runs can be configured through command-line arguments. The settings chosen for
++the two runs can be found in the respective HDFIT testing scripts, __REMHOS-test-remap.env__ and __REMHOS-test-transport.env__.
++
++Here is an example for the execution of a remap simulation:
++
++```
++cd in.remap
++mkdir out && cd out
++OMP_NUM_THREADS=1 mpirun -np 1 ../../remhos -m ../../data/cube01_hex.mesh -p 10 -rs 1 -rp 1 -o 2 -dt 0.02 -tf 0.8 -ho 1 -lo 2 -fct 2 -visit -vs 5
++```
++
++Each of the sample configurations comes with a corresponding shell script for testing purposes (e.g., __REMHOS-test-remap.env__ for the remap configuration). These are meant to be used in conjunction with the HDFIT runner script for HPC applications.
++
+ ## Purpose
+ 
+ **Remhos** (REMap High-Order Solver) is a miniapp that solves the pure advection
+diff --git a/faultInjector.h b/faultInjector.h
+new file mode 100644
+index 0000000..585293d
+--- /dev/null
++++ b/faultInjector.h
+@@ -0,0 +1,45 @@
++/*
++ * Copyright (C) 2022 Intel Corporation
++ * SPDX-License-Identifier: BSD-2-Clause
++ */
++
++#ifndef INTERFACE_FAULTINJECTOR_H_
++#define INTERFACE_FAULTINJECTOR_H_
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#define BLASFIOPSCNT_ENV_VAR "BLASFI_OPSCNT"
++
++#define BLASFIMODE_ENV_VAR "BLASFI_MODE"
++#define BLASFIMODE_NONE_CONST "NONE"
++#define BLASFIMODE_TRANSIENT_CONST "TRANSIENT"
++#define BLASFIMODE_PERMANENT_CONST "PERMANENT"
++
++#define BLASFICORRUPTION_ENV_VAR "BLASFI_CORRUPTION"
++#define BLASFICORRUPTION_NONE_CONST "NONE"
++#define BLASFICORRUPTION_STUCKHIGH_CONST "STUCKHIGH"
++#define BLASFICORRUPTION_STUCKLOW_CONST "STUCKLOW"
++#define BLASFICORRUPTION_FLIP_CONST "FLIP"
++
++#define BLASFIBITS_ENV_VAR "BLASFI_BITS"
++#define BLASFIBITS_NONE_CONST "NONE"
++#define BLASFIBITS_EVERYWHERE_CONST "EVERYWHERE"
++#define BLASFIBITS_MANTISSA_CONST "MANTISSA"
++
++#define BLASFIOUTPUT_ENV_VAR "BLASFI_OUTPUT"
++#define BLASFIOUTPUT_STDOUT_CONST "STDOUT"
++#define BLASFIOUTPUT_STDERR_CONST "STDERR"
++
++extern int blasFiInit(int rank);
++extern int blasFiSet();
++extern int blasFiClose();
++extern void blasFiPrint();
++
++#ifdef __cplusplus
++}
++#endif
++
++
++#endif /* INTERFACE_FAULTINJECTOR_H_ */
+diff --git a/remhos.cpp b/remhos.cpp
+index 5614ce9..145d88a 100644
+--- a/remhos.cpp
++++ b/remhos.cpp
+@@ -1,6 +1,7 @@
+ // Copyright (c) 2017, Lawrence Livermore National Security, LLC. Produced at
+ // the Lawrence Livermore National Laboratory. LLNL-CODE-734707. All Rights
+ // reserved. See files LICENSE and NOTICE for details.
++// Copyright (C) 2022 Intel Corporation (HDFIT components)
+ //
+ // This file is part of CEED, a collection of benchmarks, miniapps, software
+ // libraries and APIs for efficient high-order finite element and spectral
+@@ -39,9 +40,57 @@
+ #include "remhos_tools.hpp"
+ #include "remhos_sync.hpp"
+ 
++//--------------------------------------------------------------------------------------------
++#include "faultInjector.h"
++#include <unistd.h>
++#include <signal.h>
++#include <sys/time.h>
++//--------------------------------------------------------------------------------------------
++
+ using namespace std;
+ using namespace mfem;
+ 
++//--------------------------------------------------------------------------------------------
++int chosenForFi;
++int fRank;
++
++void fiAbortHandler(int sig) {
++    blasFiPrint();
++    exit(sig);
++}
++
++// returns
++//      negative on error
++//      0 if this mpi rank does no fi
++//      else this rank does fi
++static int rankChooseForFi(int mpiSize, int mpiRank, MPI_Comm comm)
++{
++    if (0 >= mpiSize) {
++        printf("mpiSize <= 0\n");
++        return -1;
++    }
++
++    int mpiRankFi = -1;
++    if (0 == mpiRank) {
++        // Assuming srand was called in blasFiInit()
++        // coverity[DC.WEAK_CRYPTO]
++        mpiRankFi = rand() % mpiSize;
++    }
++
++    if (MPI_Bcast(&mpiRankFi, 1, MPI_INT, 0, comm) != MPI_SUCCESS) {
++        printf("Rank %d, failed to broadcast FI rank\n", mpiRank);
++        return -1;
++    }
++
++    if (mpiSize < mpiRankFi) {
++        printf("mpiRankFi larger than mpiSize\n");
++        return -1;
++    }
++
++    return (mpiRankFi == mpiRank);
++}
++//--------------------------------------------------------------------------------------------
++
+ enum class HOSolverType {None, Neumann, CG, LocalInverse};
+ enum class FCTSolverType {None, FluxBased, ClipScale,
+                           NonlinearPenalty, FCTProject};
+@@ -123,6 +172,34 @@ int main(int argc, char *argv[])
+    MPI_Session mpi(argc, argv);
+    const int myid = mpi.WorldRank();
+ 
++//--------------------------------------------------------------------------------------------
++    int size = mpi.WorldSize();
++    MPI_Comm fComm = MPI_COMM_WORLD;
++    fRank = myid;
++
++    if (blasFiInit(fRank))
++    {
++        printf("blasFiInit failed\n");
++        exit(1);
++    }
++
++    chosenForFi = rankChooseForFi(size, fRank, fComm);
++    if (0 > chosenForFi)
++    {
++        printf("rankChooseForFi failed\n");
++        exit(1);
++    }
++
++    if (chosenForFi && blasFiSet())
++    {
++        printf("blasFiSet failed\n");
++        exit(1);
++    }
++
++    signal(SIGABRT, fiAbortHandler);
++    signal(SIGTERM, fiAbortHandler);
++//--------------------------------------------------------------------------------------------
++
+    const char *mesh_file = "data/periodic-square.mesh";
+    int rs_levels = 2;
+    int rp_levels = 0;
+@@ -277,6 +354,17 @@ int main(int argc, char *argv[])
+          return 3;
+    }
+ 
++//--------------------------------------------------------------------------------------------
++    // Compensating for REMHOS's seed re-initialization
++    timeval td;
++    if(gettimeofday(&td, NULL))
++    {
++        cout << "gettimeofday failed.\n";
++        return -1;
++    }
++    srand(td.tv_usec * td.tv_sec);
++//--------------------------------------------------------------------------------------------
++
+    // Check if the input mesh is periodic.
+    const bool periodic = pmesh.GetNodes() != NULL &&
+                          dynamic_cast<const L2_FECollection *>
+@@ -1155,6 +1243,10 @@ int main(int argc, char *argv[])
+       delete lom.VolumeTerms;
+    }
+ 
++//--------------------------------------------------------------------------------------------
++    blasFiPrint();
++//--------------------------------------------------------------------------------------------
++
+    return 0;
+ }
+ 
+-- 
+2.34.1
+

@@ -1,0 +1,113 @@
+&GLOBAL
+  PROJECT ethene
+  RUN_TYPE ENERGY_FORCE
+  PRINT_LEVEL MEDIUM
+&END GLOBAL
+
+&FORCE_EVAL
+  METHOD Quickstep              ! Electronic structure method (DFT,...)
+  &DFT
+    &PRINT
+      &MO_CUBES                 ! Controls which MOs are written to cube-files.
+        NHOMO 5
+        NLUMO 5
+      &END MO_CUBES
+      &PDOS                     ! Controls which MOs are included in the pdos-files.
+         NLUMO 5
+      &END
+      &V_HARTREE_CUBE ON
+      &END
+      &LOCAL_ENERGY_CUBE ON
+      &END
+    &END PRINT
+    &POISSON                    ! Solver requested for non periodic calculations
+      PERIODIC NONE
+      PSOLVER  WAVELET          ! Type of solver
+    &END POISSON
+    &QS                         ! Parameters needed to set up the Quickstep framework
+      METHOD GAPW               ! Method: gaussian and augmented plane waves 
+    &END QS
+
+    &SCF                        ! Parameters controlling the convergence of the scf. This section should not be changed. 
+      MAX_ITER_LUMOS 10000
+      EPS_SCF 1.0E-6
+      SCF_GUESS ATOMIC
+      MAX_SCF 60
+      EPS_LUMOS  0.000001
+      &OUTER_SCF
+        EPS_SCF 1.0E-6
+        MAX_SCF 6
+      &END
+    &END SCF
+
+    &XC                        ! Parametes needed to compute the electronic exchange potential 
+      &XC_FUNCTIONAL NONE      ! No xc functional
+      &END XC_FUNCTIONAL
+      &HF                      ! Hartree Fock exchange. In this case is 100% (no fraction specified).   
+        &SCREENING             ! Screening of the electronic repulsion up to the given threshold.               
+          EPS_SCHWARZ 1.0E-10  ! Threshold specification
+        &END SCREENING
+      &END HF
+    &END XC
+  &END DFT
+
+  &SUBSYS
+    &CELL
+      ABC 10 10 10
+      PERIODIC NONE              ! Non periodic calculations. That's why the POISSON scetion is needed 
+    &END CELL
+    &TOPOLOGY                    ! Section used to center the atomic coordinates in the given box. Useful for big molecules
+      &CENTER_COORDINATES
+      &END
+    &END
+    &COORD
+    C         -2.15324        3.98235        0.00126
+    C         -0.83403        4.16252       -0.00140
+    H         -0.25355        3.95641        0.89185
+    H         -0.33362        4.51626       -0.89682
+    H         -2.65364        3.62861        0.89669
+    H         -2.73371        4.18846       -0.89198
+    &END COORD
+    &KIND H                    ! Basis set and potential for H
+     &BASIS
+  2
+  1  0  0  3  1
+         18.73113700          0.03349460
+          2.82539370          0.23472695
+          0.64012170          0.81375733
+  1  0  0  1  1
+          0.16127780          1.00000000
+     &END
+     POTENTIAL ALL
+     &POTENTIAL
+     1    0    0
+     0.20000000    0
+     &END
+    &END KIND
+    &KIND C                    ! Basis set and potential for C
+     &BASIS
+  4
+  1  0  0  6  1
+       3047.52490000          0.00183470
+        457.36951000          0.01403730
+        103.94869000          0.06884260
+         29.21015500          0.23218440
+          9.28666300          0.46794130
+          3.16392700          0.36231200
+  1  0  1  3  1  1
+          7.86827240         -0.11933240          0.06899910
+          1.88128850         -0.16085420          0.31642400
+          0.54424930          1.14345640          0.74430830
+  1  0  1  1  1  1
+          0.16871440          1.00000000          1.00000000
+  1  2  2  1  1
+          0.80000000          1.00000000
+     &END
+     POTENTIAL ALL
+     &POTENTIAL
+     4    2    0
+     0.34883045    0   
+     &END
+    &END KIND
+  &END SUBSYS
+&END FORCE_EVAL

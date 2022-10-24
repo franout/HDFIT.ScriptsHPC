@@ -1,0 +1,244 @@
+From c585ff89072911b59d640f517fc4f145ac86a5e9 Mon Sep 17 00:00:00 2001
+From: Alessio Netti <alessio.netti@intel.com>
+Date: Tue, 22 Mar 2022 14:01:26 +0100
+Subject: [PATCH] Integrating HDFIT
+
+---
+ Makefile              |   4 ++
+ README.md             |  42 +++++++++++++++
+ src/start/cp2k_runs.F | 122 ++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 168 insertions(+)
+
+diff --git a/Makefile b/Makefile
+index 22ae38b58..f923be336 100644
+--- a/Makefile
++++ b/Makefile
+@@ -526,6 +526,10 @@ FCFLAGS += -D__COMPILE_ARCH="\"$(ARCH)\""\
+ 
+ FYPPFLAGS ?= -n
+ 
++cp2k_runs.o: cp2k_runs.F
++	$(TOOLSRC)/build_utils/fypp $(FYPPFLAGS) $< $*.F90
++	$(FC) -c $(FCFLAGS) -Wno-realloc-lhs -fall-intrinsics -D__SHORT_FILE__="\"$(subst $(SRCDIR)/,,$<)\"" -I'$(dir $<)' $(OBJEXTSINCL) $*.F90 $(FCLOGPIPE)
++
+ %.o: %.F
+ 	$(TOOLSRC)/build_utils/fypp $(FYPPFLAGS) $< $*.F90
+ 	$(FC) -c $(FCFLAGS) -D__SHORT_FILE__="\"$(subst $(SRCDIR)/,,$<)\"" -I'$(dir $<)' $(OBJEXTSINCL) $*.F90 $(FCLOGPIPE)
+diff --git a/README.md b/README.md
+index f2239ad1a..73e9855f5 100644
+--- a/README.md
++++ b/README.md
+@@ -14,6 +14,48 @@ or dimer method.
+ CP2K is written in Fortran 2008 and can be run efficiently in parallel using
+ a combination of multi-threading, MPI, and CUDA.
+ 
++# Important Information for HDFIT Integration
++
++This version of CP2K is instrumented to perform fault injection based on the custom HDFIT OpenBLAS library. Here we describe the
++overall compilation and execution process.
++
++## Compilation
++Compilation is the same as in the standard CP2K distribution - when cloning this repository, please remember to use the __--recursive__ option, 
++since CP2K relies on git submodules. For most use cases, the following commands will carry out compilation successfully:
++
++```
++export PATH=PATH_TO_CUSTOM_OPENBLAS_LIB:$PATH
++export LD_LIBRARY_PATH=PATH_TO_CUSTOM_OPENBLAS_LIB:$LD_LIBRARY_PATH
++
++cd tools/toolchain && ./install_cp2k_toolchain.sh --with-openblas=system --with-elpa=no --with-pexsi=no --with-cosma=no
++cp install/arch/* ../../arch/ && cd ../../
++source tools/toolchain/install/setup
++make -j 8 ARCH=local VERSION="ssmp sdbg psmp pdbg"
++```
++
++Replace __PATH\_TO\_CUSTOM\_OPENBLAS\_LIB__ with the path to the main OpenBLAS directory. On top of BLAS, CP2K requires the Libint, Libxc, 
++Libxsmm and FFTW libraries, among others. The toolchain script described above will install all dependencies automatically, without any 
++additional input required from the user - the only exception is the Zlib library, which must be installed on the system beforehand.
++
++## Running Experiments
++
++This distribution comes with two different sample configurations: 
++
++* Water molecule, energy and forces calculation (__H2O.inp__ within in.H2O directory)
++* Ethene molecule, energy and forces calculation (__C2H4.inp__ within in.C2H4 directory)
++
++No molecular dynamics inputs were included, since the underlying algorithms make very little use of GEMM operations. 
++In order to run a simulation, please create a new sub-directory within the chosen configuration's directory - this will 
++contain all output files.  Here is an example for the execution of an Ethene simulation:
++
++```
++cd in.C2H4
++mkdir out && cd out
++OMP_NUM_THREADS=1 mpirun -np 1 ../../exe/local/cp2k.popt -i ../C2H4.inp
++```
++
++Each of the sample input configurations comes with a corresponding shell script for testing purposes (e.g., __CP2K-test-C2H4.env__ for the Ethene configuration). These are meant to be used in conjunction with the HDFIT runner script for HPC applications.
++
+ ## Downloading CP2K source code
+ 
+ To clone the current master (development version):
+diff --git a/src/start/cp2k_runs.F b/src/start/cp2k_runs.F
+index 9bbde003a..7a9453c84 100644
+--- a/src/start/cp2k_runs.F
++++ b/src/start/cp2k_runs.F
+@@ -1,12 +1,19 @@
+ !--------------------------------------------------------------------------------------------------!
+ !   CP2K: A general program to perform molecular dynamics simulations                              !
+ !   Copyright 2000-2021 CP2K developers group <https://cp2k.org>                                   !
++!   Copyright (C) 2022 Intel Corporation (HDFIT components)                                        !
+ !                                                                                                  !
+ !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
+ !--------------------------------------------------------------------------------------------------!
+ 
+ ! **************************************************************************************************
+ MODULE cp2k_runs
++!--------------------------------------------------------------------------------------------
++   USE, intrinsic :: iso_c_binding, ONLY: C_INT
++   USE base_hooks, ONLY: cp_abort_hook
++   USE message_passing, ONLY: mp_environ
++!--------------------------------------------------------------------------------------------
++
+    USE atom,                            ONLY: atom_code
+    USE bibliography,                    ONLY: Hutter2014,&
+                                               cite_reference
+@@ -149,8 +156,91 @@ MODULE cp2k_runs
+ 
+    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'cp2k_runs'
+ 
++!--------------------------------------------------------------------------------------------
++    intrinsic signal
++
++    ! BlasFi Data types
++    ! Variable storing total number of MPI ranks
++    integer :: numRanks = 0;
++    ! Variable storing MPI rank of the process
++    integer :: myRank   = -1;
++
++    interface
++        function blasFiInit_f(rank) bind(C, name="blasFiInit")
++            USE, intrinsic :: iso_c_binding, ONLY: C_INT
++            IMPLICIT NONE
++            integer(kind=C_INT) :: blasFiInit_f
++            integer(kind=C_INT), INTENT(IN), VALUE :: rank
++        endfunction
++    endinterface
++  
++    interface
++        function blasFiSet_f() bind(C, name="blasFiSet")
++            USE, intrinsic :: iso_c_binding, ONLY: C_INT
++            IMPLICIT NONE
++            integer(kind=C_INT) :: blasFiSet_f
++        endfunction
++    endinterface
++ 
++    interface
++        subroutine blasFiPrint_f() bind(C, name="blasFiPrint")
++            IMPLICIT NONE
++        end subroutine
++    endinterface
++
++    INTEGER :: choice
++!--------------------------------------------------------------------------------------------
++
+ CONTAINS
+ 
++!--------------------------------------------------------------------------------------------
++    SUBROUTINE cp_signal_handler()
++        CALL blasFiPrint_f()
++        stop 15
++    END SUBROUTINE cp_signal_handler
++
++    SUBROUTINE cp_abort_handler(location, message)
++        CHARACTER(len=*), INTENT(in) :: location, message
++
++        print *, location, message
++        CALL blasFiPrint_f()
++    END SUBROUTINE cp_abort_handler
++
++    SUBROUTINE rankChooseForFi(mpiSize, mpiRank, comm, chosen)
++        INTEGER, INTENT(in)  :: mpiSize, mpiRank, comm
++        INTEGER, INTENT(out) :: chosen
++        INTEGER :: mpiRankFi
++        REAL    :: randNum
++
++        chosen = -1
++        IF (mpiSize < 1) THEN
++            WRITE(*,*) "mpiSize <= 0"
++            RETURN
++        END IF
++
++        mpiRankFi = -1
++        IF (mpiRank == 0) THEN
++            call random_number(randNum)
++            mpiRankFi = FLOOR(randNum * mpiSize)
++        END IF
++
++        ! WARNING: this is CP2K-specific!
++        call mp_bcast(mpiRankFi, 0, comm)
++        IF (mpiSize < mpiRankFi) THEN
++            WRITE(*,*) "mpiRankFi larger than mpiSize"
++            RETURN
++        END IF
++
++        IF (mpiRankFi == mpiRank) THEN
++            chosen = 1
++        ELSE
++            chosen = 0
++        END IF
++
++        RETURN
++    END SUBROUTINE rankChooseForFi
++!--------------------------------------------------------------------------------------------
++
+ ! **************************************************************************************************
+ !> \brief performs an instance of a cp2k run
+ !> \param input_declaration ...
+@@ -217,6 +307,34 @@ CONTAINS
+ 
+       CALL cite_reference(Hutter2014)
+ 
++!--------------------------------------------------------------------------------------------
++      !  BlasFi Initialization
++      !  Getting own MPI rank
++      call mp_environ(numRanks, myRank, mpi_comm)
++      !  Initializing fault injection
++      if(blasFiInit_f(myRank)<0) then 
++        WRITE(*,*) 'blasFiInit failed'
++        stop 1
++      end if
++  
++      ! Setting custom abort and signal handlers
++      cp_abort_hook => cp_abort_handler
++      call signal(15, cp_signal_handler)
++      call rankChooseForFi(numRanks, myRank, mpi_comm, choice)
++
++      if(choice < 0) then
++        WRITE(*,*) 'rankChooseForFi failed'
++        stop 1
++      end if
++
++      if(choice == 1) then
++        if(blasFiSet_f()<0) then 
++           WRITE(*,*) 'blasFiSet failed'
++           stop 1
++        end if
++      end if
++!--------------------------------------------------------------------------------------------
++
+       ! parse the input
+       input_file => read_input(input_declaration, input_file_name, initial_variables=initial_variables, &
+                                para_env=para_env)
+@@ -452,6 +570,10 @@ CONTAINS
+          CALL globenv_release(globenv)
+       END IF
+ 
++!--------------------------------------------------------------------------------------------
++      CALL blasFiPrint_f()
++!--------------------------------------------------------------------------------------------
++
+       CALL dbcsr_finalize_lib()
+ 
+       CALL cp_para_env_release(para_env)
+-- 
+2.25.1
+

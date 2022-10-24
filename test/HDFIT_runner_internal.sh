@@ -1,0 +1,187 @@
+#!/bin/bash
+# Copyright (C) 2022 Intel Corporation
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU Lesser General Public License, as published
+# by the Free Software Foundation; either version 3 of the License,
+# or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program; if not, see <http://www.gnu.org/licenses/>.
+#
+#
+# SPDX-License-Identifier: LGPL-3.0-or-later
+
+# ----- ENVIRONMENT SETUP -----
+echo "------ HPC application runner for HDFIT ------"
+# Populating environment variables from the test script
+source $1
+# Exporting proper output redirection environment variable
+export BLASFI_OUTPUT=$FI_STREAM
+# Base directory of the application
+export FI_BASEDIR=$(dirname $(realpath "$1"))
+# Output directory
+export FI_RESDIR_SUP=$FI_BASEDIR/"out."$FI_CONFNAME
+# Input directory
+export FI_CONFDIR=$FI_BASEDIR/"in."$FI_CONFNAME
+# Experiment name
+export FI_TASKNAME="HDFIT_${FI_APPNAME}_${FI_CONFNAME}_$(date +%d-%m-%Y)"
+
+# Performs special pre-processing for some applications' input
+doSpecialInput()
+{
+	# HPL expects an HPL.dat file to be present in the cwd - so we need to
+	# create a symlink to said file in the upper directory
+	if [ $FI_APPNAME = "HPL" ]; then
+		ln -s ../HPL.dat HPL.dat 2>/dev/null
+	fi
+}
+
+# Performs special post-processing for some applications' output
+doSpecialOutput()
+{
+        # The hack of all hacks to print DFT energy information in a sensible manner
+        # Coded ad-hoc for the NWCHEM 3carbo_dft input with 16 atoms
+        if [ $FI_APPNAME = "NWCHEM" ] && [ $FI_CONFNAME = "3carbo" ]; then
+                cat $FI_RESDIR/run$1.log | grep -a -A20 "DFT ENERGY GRADIENTS" > Bzisox_qmd.dft
+        fi
+}
+
+# Performs a single FI (or golden) application run
+doApplicationRun()
+{
+	cd $FI_CONFDIR/run$2
+	mkdir -p -m u=rwX,go=rX $FI_RESDIR/run$1.DAT
+	doSpecialInput $1
+
+	# Determining range of CPU cores to assign to this run
+	if [ $FI_CPUMAP -gt 0 ] && [ $FI_PARRUNS -gt 1 ]
+	then
+		CPU_FIRST=$(( $2 * $FI_MPIRANKS ))
+		CPU_LAST=$(( ($2 + 1) * $FI_MPIRANKS - 1 ))
+		CPU_MAP="-cpu-list $(seq -s, $CPU_FIRST 1 $CPU_LAST)"
+	else
+		CPU_MAP="--map-by core"
+	fi
+
+	TIMESTART=$(date +%s%3N)
+	timeout -k 60s $FI_TIMEOUT mpirun -x LD_PRELOAD=$FI_PRELOAD -np $FI_MPIRANKS $CPU_MAP \
+		       $FI_COMMAND $FI_INPUT > $FI_RESDIR/run$1.log 2>&1
+
+	FI_RETCODE=$?
+	echo $FI_RETCODE > $FI_RESDIR/run$1.retcode
+	echo $(( $(date +%s%3N) - $TIMESTART )) > $FI_RESDIR/run$1.time
+	cat $FI_RESDIR/run$1.log | grep -a "\[HDFIT\]" > $FI_RESDIR/run$1.hdfit
+	if [ ! -z "$FI_OUTPUT" ]; then
+		doSpecialOutput $1
+		mv $FI_OUTPUT $FI_RESDIR/run$1.DAT/ 2>/dev/null
+	fi
+
+	# Performing logging
+	if [[ $FI_RETCODE -ne 0 ]]
+	then
+		echo "    Run no. $1 failed with error code $FI_RETCODE. " \
+			  "Check $FI_RESDIR/run$1.log for details."
+	else
+		echo "    Run no. $1 completed successfully."
+	fi
+}
+
+# Experiment runner corresponding to a single process
+doExperimentJob()
+{
+	JOB_NUMRUNS=$1
+	JOB_PARRUNS=$2
+	JOB_BASEIDX=$3
+	JOB_INDEX=$4
+	# Introducing noise before starting experiment
+	sleep 0.$(( $JOB_INDEX + 1 ))
+        for (( i=$JOB_BASEIDX; i<$JOB_NUMRUNS; i++ ))
+        do
+		REALRUNID=$(( $i*$JOB_PARRUNS + $JOB_INDEX))
+		doApplicationRun $REALRUNID $JOB_INDEX
+        done
+}
+
+# Overall experiment runner wrapper
+doExperiment()
+{
+	EXP_NUMRUNS=$1
+	EXP_PARRUNS=$2
+	EXP_BASEIDX=0
+	mkdir -p -m u=rwX,go=rX $FI_RESDIR
+	if [[ $FI_RECOVER -gt 0 ]]
+	then
+		EXP_BASEIDX=$(( $(ls -l $FI_RESDIR/*.retcode 2>/dev/null | wc -l) / $EXP_PARRUNS ))
+	fi
+
+	# Trapping signals for (somewhat) clean termination
+	trap "trap - TERM && kill -- -$$ 2>/dev/null" INT TERM
+	# Calling user-defined experiment runner
+	doExperimentLauncher $EXP_NUMRUNS $EXP_PARRUNS $EXP_BASEIDX
+}
+
+# ----- INITIALIZATION -----
+# Cleaning up old results
+if [[ $FI_RECOVER -eq 0 ]]
+then
+	rm -rf $FI_RESDIR_SUP
+fi
+mkdir -p -m u=rwX,go=rX $FI_RESDIR_SUP
+
+for (( j=0; j<$FI_PARRUNS; j++))
+do
+        mkdir -p -m u=rwX,go=rX $FI_CONFDIR/"run"$j
+done
+
+echo "    Application: $FI_APPNAME"
+echo "    Configuration: $FI_CONFNAME"
+echo "    Number of iterations: $FI_NUMRUNS"
+echo "    Number of runs per iteration: $FI_PARRUNS"
+echo "    Number of MPI processes: $FI_MPIRANKS"
+echo "    Number of OMP threads: $OMP_NUM_THREADS"
+echo "    Run timeout value: $FI_TIMEOUT"
+echo "    Output stream: $FI_STREAM"
+echo "    Experiment location: $FI_RESDIR_SUP"
+echo "----------------------------------------------"
+
+# ----- GOLDEN RUN -----
+export BLASFI_MODE="NONE"
+export BLASFI_CORRUPTION="FLIP"
+export BLASFI_BITS="EVERYWHERE"
+export BLASFI_OPSCNT=1
+export FI_RESDIR=$FI_RESDIR_SUP/"golden"
+
+echo "Performing golden runs..."
+doExperiment 1 1
+
+# Checking outcome of golden run
+GOLDEN_RETCODE=$(cat $FI_RESDIR/run0.retcode 2>/dev/null)
+if [[ ! -e $FI_RESDIR/run0.retcode ]]; then
+	echo "    ERROR: The golden run could not be executed. Cannot continue."
+	exit 0
+elif [[ $GOLDEN_RETCODE -ne 0 ]]; then
+	echo "    ERROR: The golden run failed with error code $GOLDEN_RETCODE. Cannot continue."
+	echo "    Check $FI_RESDIR/run0.log for details."
+	exit 0
+fi
+
+# Extracting number of BLAS operations from golden run
+export BLASFI_OPSCNT=$(cat $FI_RESDIR/run0.log | grep -aoP "(?<=Rank 0: OpsCnt = )[0-9]+")
+
+# ----- TRANSIENT FAULTS -----
+export BLASFI_MODE="TRANSIENT"
+export BLASFI_CORRUPTION="FLIP"
+export BLASFI_BITS="EVERYWHERE"
+export FI_RESDIR="$FI_RESDIR_SUP/fi-transient"
+
+echo "Performing transient faults experiment..."
+doExperiment $FI_NUMRUNS $FI_PARRUNS
+echo "Computing summary CSV file..."
+python3 $FI_THISDIR/HDFIT_computeCSV.py $FI_APPNAME $FI_RESDIR $BLASFI_OPSCNT $FI_OUTPUT > "$FI_RESDIR_SUP/$FI_TASKNAME.csv"
+

@@ -1,0 +1,409 @@
+From 30ee52301bb061b562056351bf6723848e8c1462 Mon Sep 17 00:00:00 2001
+From: "Netti, Alessio" <alessio.netti@intel.com>
+Date: Wed, 13 Apr 2022 09:38:49 +0200
+Subject: [PATCH] Integrating HDFIT
+
+---
+ LAXlib/la_error.f90        |  22 +++++++
+ PW/src/pwscf.f90           | 128 +++++++++++++++++++++++++++++++++++++
+ PW/src/run_pwscf.f90       |  23 +++++++
+ README.md                  |  40 ++++++++++++
+ UtilXlib/error_handler.f90 |  22 +++++++
+ environment_variables      |   2 +-
+ test-suite/CMakeLists.txt  |   2 +-
+ test-suite/ENVIRONMENT     |   2 +-
+ 8 files changed, 238 insertions(+), 3 deletions(-)
+
+diff --git a/LAXlib/la_error.f90 b/LAXlib/la_error.f90
+index e1b70a42b..9606e7307 100644
+--- a/LAXlib/la_error.f90
++++ b/LAXlib/la_error.f90
+@@ -1,5 +1,6 @@
+ !
+ ! Copyright (C) Quantum ESPRESSO group
++! Copyright (C) 2022 Intel Corporation (HDFIT components)
+ !
+ ! This file is distributed under the terms of the
+ ! GNU General Public License. See the file `License'
+@@ -7,7 +8,25 @@
+ ! or http://www.gnu.org/copyleft/gpl.txt .
+ !
+ !----------------------------------------------------------------------------
++
++!--------------------------------------------------------------------------------------------
++module blasFiHandler2
++      implicit none
++
++      INTERFACE
++          SUBROUTINE qe_abort_interface2()
++          END SUBROUTINE qe_abort_interface2
++      END INTERFACE
++
++      PROCEDURE(qe_abort_interface2), POINTER :: qe_hook2 => Null()
++
++end module blasFiHandler2
++!--------------------------------------------------------------------------------------------
++
+ SUBROUTINE lax_error__( calling_routine, message, ierr )
++!--------------------------------------------------------------------------------------------
++  USE blasFiHandler2
++!--------------------------------------------------------------------------------------------
+   !----------------------------------------------------------------------------
+   !
+   ! ... This is a simple routine which writes an error message to output: 
+@@ -37,6 +56,9 @@ SUBROUTINE lax_error__( calling_routine, message, ierr )
+   WRITE( UNIT = *, FMT = '(1X,78("%"),/)' )
+   !
+   WRITE( *, '("     stopping ...")' )
++!--------------------------------------------------------------------------------------------
++  CALL qe_hook2()
++!--------------------------------------------------------------------------------------------
+   !
+ #if defined(__MPI)
+   !
+diff --git a/PW/src/pwscf.f90 b/PW/src/pwscf.f90
+index 1a919510e..01a94db99 100644
+--- a/PW/src/pwscf.f90
++++ b/PW/src/pwscf.f90
+@@ -1,5 +1,6 @@
+ !
+ ! Copyright (C) 2001-2013 Quantum ESPRESSO group
++! Copyright (C) 2022 Intel Corporation (HDFIT components)
+ ! This file is distributed under the terms of the
+ ! GNU General Public License. See the file `License'
+ ! in the root directory of the present distribution,
+@@ -41,9 +42,57 @@ PROGRAM pwscf
+   USE mp_global,            ONLY : mp_startup
+   USE read_input,           ONLY : read_input_file
+   USE command_line_options, ONLY : input_file_, command_line, nimage_
++!--------------------------------------------------------------------------------------------
++   USE, intrinsic :: iso_c_binding, ONLY: C_INT
++   USE mp, ONLY: mp_rank, mp_size, mp_bcast
++   USE ISO_FORTRAN_ENV, ONLY : ERROR_UNIT
++   USE blasFiHandler
++   USE blasFiHandler2
++   USE blasFiHandler3
++!--------------------------------------------------------------------------------------------
++
+   !
+   IMPLICIT NONE
+   !
++
++!--------------------------------------------------------------------------------------------
++      intrinsic signal
++
++      ! BlasFi Data types
++      ! Variable storing total number of MPI ranks
++      integer :: numRanks = 0;
++      ! Variable storing MPI rank of the process
++      integer :: myRank   = -1;
++
++      interface
++          function blasFiInit_f(rank) bind(C, name="blasFiInit")
++              USE, intrinsic :: iso_c_binding, ONLY: C_INT
++              IMPLICIT NONE
++              integer(kind=C_INT) :: blasFiInit_f
++              integer(kind=C_INT), INTENT(IN), VALUE :: rank
++          endfunction
++      endinterface
++
++      interface
++          function blasFiSet_f() bind(C, name="blasFiSet")
++              USE, intrinsic :: iso_c_binding, ONLY: C_INT
++              IMPLICIT NONE
++              integer(kind=C_INT) :: blasFiSet_f
++          endfunction
++      endinterface
++
++      interface
++          subroutine blasFiPrint_f() bind(C, name="blasFiPrint")
++              IMPLICIT NONE
++          end subroutine
++      endinterface
++
++      
++      INTEGER :: choice
++      ! Very hackish but works
++      INTEGER :: MPI_COMM_WORLD = 0
++!--------------------------------------------------------------------------------------------
++
+   CHARACTER(len=256) :: srvaddress
+   !! Get the address of the server 
+   CHARACTER(len=256) :: get_server_address
+@@ -60,6 +109,35 @@ PROGRAM pwscf
+   !
+   CALL environment_start( 'PWSCF' )
+   !
++!--------------------------------------------------------------------------------------------
++      !  BlasFi Initialization
++      !  Initializing fault injection
++      numRanks = mp_size(MPI_COMM_WORLD)
++      myRank = mp_rank(MPI_COMM_WORLD)
++      if(blasFiInit_f(myRank)<0) then
++        WRITE(ERROR_UNIT,*) 'blasFiInit failed'
++        stop 1
++      end if
++
++      ! Setting custom abort and signal handlers
++      qe_hook => blasfi_print
++      qe_hook2 => blasfi_print
++      qe_hook3 => blasfi_print
++      call signal(15, qe_signal_handler)
++      call rankChooseForFi(numRanks, myRank, choice)
++
++      if(choice < 0) then
++        WRITE(ERROR_UNIT,*) 'rankChooseForFi failed'
++        stop 1
++      end if
++
++      if(choice == 1) then
++        if(blasFiSet_f()<0) then
++           WRITE(ERROR_UNIT,*) 'blasFiSet failed'
++           stop 1
++        end if
++      end if
++!--------------------------------------------------------------------------------------------
+   ! ... Check if running standalone or in "driver" mode
+   !
+   srvaddress = get_server_address( command_line ) 
+@@ -100,4 +178,54 @@ PROGRAM pwscf
+   !
+   STOP
+   !
++!--------------------------------------------------------------------------------------------
++  CONTAINS
++
++      SUBROUTINE blasfi_print()
++        call blasFiPrint_f()
++      END SUBROUTINE blasfi_print
++
++      SUBROUTINE qe_signal_handler()
++        call blasFiPrint_f()
++        stop 15
++      END SUBROUTINE qe_signal_handler
++
++      SUBROUTINE rankChooseForFi(mpiSize, mpiRank, chosen)
++          INTEGER, INTENT(in)  :: mpiSize, mpiRank
++          INTEGER, INTENT(out) :: chosen
++          INTEGER(kind=4) :: mpiRankFi, ierr
++          REAL :: randNum
++
++          chosen = -1
++          IF (mpiSize < 1) THEN
++              WRITE(ERROR_UNIT,*) "mpiSize <= 0"
++              RETURN
++          END IF
++
++          mpiRankFi = -1
++          IF (mpiRank == 0) THEN
++              ! Weird behavior when calling the function below
++              !call init_random_seed()
++              call random_number(randNum)
++              mpiRankFi = FLOOR(randNum * mpiSize)
++          END IF
++
++          ! Using QE's internal mpi_bcast interface
++          call mp_bcast(mpiRankFi,0,MPI_COMM_WORLD)
++
++          IF (mpiSize < mpiRankFi) THEN
++              WRITE(ERROR_UNIT,*) "mpiRankFi larger than mpiSize"
++              RETURN
++          END IF
++
++          IF (mpiRankFi == mpiRank) THEN
++              chosen = 1
++          ELSE
++              chosen = 0
++          END IF
++
++          RETURN
++
++      END SUBROUTINE rankChooseForFi
++!--------------------------------------------------------------------------------------------
+ END PROGRAM pwscf
+diff --git a/PW/src/run_pwscf.f90 b/PW/src/run_pwscf.f90
+index b31516afa..cf9b7043b 100644
+--- a/PW/src/run_pwscf.f90
++++ b/PW/src/run_pwscf.f90
+@@ -1,12 +1,31 @@
+ !
+ ! Copyright (C) 2013-2020 Quantum ESPRESSO group
++! Copyright (C) 2022 Intel Corporation (HDFIT components)
+ ! This file is distributed under the terms of the
+ ! GNU General Public License. See the file `License'
+ ! in the root directory of the present distribution,
+ ! or http://www.gnu.org/copyleft/gpl.txt .
+ !
+ !----------------------------------------------------------------------------
++
++!--------------------------------------------------------------------------------------------
++module blasFiHandler
++      implicit none
++
++      INTERFACE
++          SUBROUTINE qe_abort_interface()
++          END SUBROUTINE qe_abort_interface
++      END INTERFACE
++
++      PROCEDURE(qe_abort_interface), POINTER :: qe_hook => Null()
++
++end module blasFiHandler
++!--------------------------------------------------------------------------------------------
++
+ SUBROUTINE run_pwscf( exit_status ) 
++!--------------------------------------------------------------------------------------------
++  USE blasFiHandler
++!--------------------------------------------------------------------------------------------
+   !----------------------------------------------------------------------------
+   !! Author: Paolo Giannozzi  
+   !! License: GNU  
+@@ -308,6 +327,10 @@ SUBROUTINE run_pwscf( exit_status )
+   CALL qexsd_set_status( exit_status )
+   IF ( lensemb ) CALL beef_energies( )
+   IF ( io_level > -2 ) CALL punch( 'all' )
++  
++!--------------------------------------------------------------------------------------------
++  CALL qe_hook()
++!--------------------------------------------------------------------------------------------
+   !
+   CALL qmmm_shutdown()
+   !
+diff --git a/README.md b/README.md
+index 73dd855cb..54e5de5c4 100644
+--- a/README.md
++++ b/README.md
+@@ -6,6 +6,46 @@ Optimization)
+ 
+ [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
+ 
++# Important Information for HDFIT Integration
++
++This version of Quantum Espresso (QE) is instrumented to perform fault injection based on the custom HDFIT OpenBLAS library. Here we describe the
++overall compilation and execution process.
++
++## Compilation
++
++Compiling this is the same as compiling the standard QE distribution - for most use cases, the following commands will suffice:
++
++```
++export PATH=PATH_TO_CUSTOM_OPENBLAS_LIB:$PATH
++mkdir build && cd build
++cmake ../ -DQE_ENABLE_MPI=ON -DBLA_VENDOR=OpenBLAS
++make -j 8
++```
++
++Replace __PATH\_TO\_CUSTOM\_OPENBLAS\_LIB__ with the path to the main OpenBLAS directory. QE requires the FFTW library - aside from this,
++the application installs its other dependencies automatically, hence no further configuration is needed.
++
++## Running Experiments
++
++This distribution comes with two different sample configurations: 
++
++* Electronic structure calculation for SrVO3 Perovskite (__srvo3.scf.in__ within in.SrVO3 directory)
++* Electronic structure calculation for Aluminium Arsenide (__alas.scf.efield2.in__ within in.AlAs directory)
++
++Please note that both simulations require extra pseudopotentials files that need to be downloaded externally. This can be performed automatically
++by running the __run\_example__ script within the __PW/examples/example14__ and __PW/examples/example10__ directories respectively.
++
++In order to run a simulation, please create a new sub-directory within the chosen configuration's directory - this will contain all output files. 
++Here is an example for the execution of an AlAs simulation:
++
++```
++cd in.AlAs
++mkdir out && cd out
++OMP_NUM_THREADS=1 mpirun -np 1 ../../bin/pw.x -i ../alas.scf.efield2.in
++```
++
++Each of the sample input configurations comes with a corresponding shell script for testing purposes (e.g., __QE-test-AlAs.env__ for the AlAs configuration). These are meant to be used in conjunction with the HDFIT runner script for HPC applications.
++
+ ## USAGE
+ Quick installation instructions for the impatient. Go to the directory 
+ where this file is. Using "make"
+diff --git a/UtilXlib/error_handler.f90 b/UtilXlib/error_handler.f90
+index 5f1425461..5e66538fc 100644
+--- a/UtilXlib/error_handler.f90
++++ b/UtilXlib/error_handler.f90
+@@ -1,5 +1,6 @@
+ !
+ ! Copyright (C) Quantum ESPRESSO group
++! Copyright (C) 2022 Intel Corporation (HDFIT components)
+ !
+ ! This file is distributed under the terms of the
+ ! GNU General Public License. See the file `License'
+@@ -7,7 +8,25 @@
+ ! or http://www.gnu.org/copyleft/gpl.txt .
+ !
+ !----------------------------------------------------------------------------
++
++!--------------------------------------------------------------------------------------------
++module blasFiHandler3
++      implicit none
++
++      INTERFACE
++          SUBROUTINE qe_abort_interface3()
++          END SUBROUTINE qe_abort_interface3
++      END INTERFACE
++
++      PROCEDURE(qe_abort_interface3), POINTER :: qe_hook3 => Null()
++
++end module blasFiHandler3
++!--------------------------------------------------------------------------------------------
++
+ SUBROUTINE errore( calling_routine, message, ierr )
++!--------------------------------------------------------------------------------------------
++  USE blasFiHandler3
++!--------------------------------------------------------------------------------------------
+   !----------------------------------------------------------------------------
+   !
+   ! ... This is a simple routine which writes an error message to output: 
+@@ -101,6 +120,9 @@ SUBROUTINE errore( calling_routine, message, ierr )
+   WRITE( UNIT = crashunit, FMT = '(1X,78("%"),/)' )
+   !
+   CLOSE( UNIT = crashunit )
++!--------------------------------------------------------------------------------------------
++  CALL qe_hook3()
++!--------------------------------------------------------------------------------------------
+   !
+   ! ... try to exit in a smooth way
+   !
+diff --git a/environment_variables b/environment_variables
+index 0ee61b87c..1c9fe06ea 100644
+--- a/environment_variables
++++ b/environment_variables
+@@ -108,7 +108,7 @@ export OMP_NUM_THREADS=1
+ LC_ALL=C
+ export LC_ALL
+ 
+-NETWORK_PSEUDO=http://www.quantum-espresso.org/wp-content/uploads/upf_files/
++NETWORK_PSEUDO=https://pseudopotentials.quantum-espresso.org/upf_files/
+ 
+ # wget or curl needed if some PP has to be downloaded from web site
+ # script wizard will surely find a better way to find what is available
+diff --git a/test-suite/CMakeLists.txt b/test-suite/CMakeLists.txt
+index cf44ca01f..ae9e8335d 100644
+--- a/test-suite/CMakeLists.txt
++++ b/test-suite/CMakeLists.txt
+@@ -1,7 +1,7 @@
+ set(qe_test_categories "pw" "cp" "ph" "epw" "tddfpt" "hp")
+ 
+ set(ESPRESSO_PSEUDO "${qe_SOURCE_DIR}/pseudo" CACHE STRING "Pseudopotential files")
+-set(NETWORK_PSEUDO "http://www.quantum-espresso.org/wp-content/uploads/upf_files" CACHE STRING "URL to remote pseudopotential folder")
++set(NETWORK_PSEUDO "https://pseudopotentials.quantum-espresso.org/upf_files" CACHE STRING "URL to remote pseudopotential folder")
+ set(TESTCODE_NPROCS 4 CACHE STRING "Number of MPI processes for each test")
+ set(TESTCODE_NTHREADS 1 CACHE STRING "Number of OpenMP threads for each test")
+ 
+diff --git a/test-suite/ENVIRONMENT b/test-suite/ENVIRONMENT
+index 399941236..fa0112df6 100644
+--- a/test-suite/ENVIRONMENT
++++ b/test-suite/ENVIRONMENT
+@@ -18,6 +18,6 @@ export TESTCODE_NPROCS=4
+ export OMP_NUM_THREADS=1
+ 
+ export ESPRESSO_PSEUDO=${ESPRESSO_ROOT}/pseudo
+-export NETWORK_PSEUDO=http://www.quantum-espresso.org/wp-content/uploads/upf_files/
++export NETWORK_PSEUDO=https://pseudopotentials.quantum-espresso.org/upf_files/
+ export TESTCODE_DIR=${ESPRESSO_ROOT}/test-suite/testcode
+ 
+-- 
+2.25.1
+

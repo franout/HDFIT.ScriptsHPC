@@ -1,0 +1,378 @@
+From 9d1eb4cfb9c70c72e8f05ce78efe9d41286efc7f Mon Sep 17 00:00:00 2001
+From: "Netti, Alessio" <alessio.netti@intel.com>
+Date: Mon, 4 Apr 2022 16:41:24 +0200
+Subject: [PATCH] Integrating HDFIT
+
+---
+ README.md                 |  48 ++++++++++++++
+ src/GNUmakefile           |   9 +--
+ src/nwchem.F              | 133 ++++++++++++++++++++++++++++++++++++--
+ src/peigs/src/f77/xstop.f |  23 +++++++
+ src/util/errquit.F        |  22 +++++++
+ 5 files changed, 227 insertions(+), 8 deletions(-)
+
+diff --git a/README.md b/README.md
+index 4ca494e813..1837d9a7a1 100644
+--- a/README.md
++++ b/README.md
+@@ -19,6 +19,54 @@
+ NWChem is actively developed by a consortium of developers and maintained by the Environmental Molecular Sciences Laboratory (EMSL), a US DOE Office of Science User Facility
+ located at the Pacific Northwest National Laboratory (PNNL) in Washington State
+ 
++# Important Information for HDFIT Integration
++
++This version of NWChem is instrumented to perform fault injection based on the custom HDFIT OpenBLAS library. Here we describe the
++overall compilation and execution process.
++
++## Compilation
++
++Compiling this is the same as compiling the standard NWChem distribution - for most use cases, the following commands will work well:
++
++```
++export NWCHEM_TOP=$HOME/nwchem
++export NWCHEM_TARGET=LINUX64
++export USE_MPI=y
++export USE_MPIF=y
++export NWCHEM_MODULES="all"
++export BLASOPT="-LPATH_TO_CUSTOM_OPENBLAS_LIB -lopenblas"
++export LAPACK_LIB="-LPATH_TO_CUSTOM_OPENBLAS_LIB -lopenblas"
++export BLAS_SIZE=4
++
++cd src
++rm -f 64_to_32
++make nwchem_config
++make 64_to_32
++make
++```
++
++Replace __PATH\_TO\_CUSTOM\_OPENBLAS\_LIB__ with the path to the main OpenBLAS directory. The commands above assume that the nwchem repository
++has been cloned under __nwchem__ in the user's home directory. If not, change the __NWCHEM\_TOP__ environment variable accordingly. Aside from 
++BLAS and MPI, NWCHEM does not have any specific additional dependencies.
++
++## Running Experiments
++
++This distribution comes with two different sample configurations: 
++
++* 16-atom Sodium Car-Parrinello simulation (__Na16.nw__ within in.Na16 directory)
++* 3-Carboxybenzisoxazole quantum molecular dynamics simulation (__3carbo\_dft.nw__ within in.3carbo directory)
++
++In order to run a simulation, please create a new sub-directory within the chosen configuration's directory - this will contain all output files. 
++Here is an example for the execution of a 3-Carbo simulation:
++
++```
++cd in.3carbo
++mkdir out && cd out
++OMP_NUM_THREADS=1 mpirun -np 1 ../../bin/LINUX64/nwchem ../3carbo_dft.nw
++```
++
++Each of the sample input configurations comes with a corresponding shell script for testing purposes (e.g., __NWCHEM-test-3carbo.env__ for the 3-Carbo configuration). These are meant to be used in conjunction with the HDFIT runner script for HPC applications.
++
+ ### Scalable computational chemistry tools
+ 
+ Source download instructions
+diff --git a/src/GNUmakefile b/src/GNUmakefile
+index 1b4fdfc325..02727ec691 100644
+--- a/src/GNUmakefile
++++ b/src/GNUmakefile
+@@ -17,6 +17,7 @@ ifeq ($(XLFMAC),y)
+ endif
+ 
+ NWBINNAME = nwchem
++FFLAGS += -L$(MPI_LIB) $(LIBMPI) -I$(MPI_INCLUDE)
+ 
+ #
+ # This should be the first target so that a simple make builds
+@@ -31,11 +32,11 @@ endif
+ .PRECIOUS:	$(BINDIR)/$(NWBINNAME) $(NWBINNAME)
+ all $(BINDIR)/$(NWBINNAME) $(NWBINNAME):	directories libraries
+ 	@/bin/rm -f nwchem.o stubs.o
+-	$(MAKE) nwchem.o stubs.o
++	$(MAKE) util/errquit.o peigs/src/f77/xstop.o nwchem.o stubs.o
+ ifeq ($(TARGET),SOLARIS)
+ 	/bin/rm -f $(BINDIR)/$(NWBINNAME)
+ endif
+-	$(LINK.f) -o $(BINDIR)/$(NWBINNAME) nwchem.o stubs.o -lnwctask $(LIBS)
++	$(LINK.f) -o $(BINDIR)/$(NWBINNAME) util/errquit.o peigs/src/f77/xstop.o nwchem.o stubs.o -lnwctask $(LIBS)
+ ifdef SUMO
+ 	$(AR) rcv $(LIBDIR)/libnwchem-sumo.a $(LIBDIR)/objs/*.o
+ 	$(RANLIB) $(LIBDIR)/libnwchem-sumo.a
+@@ -52,11 +53,11 @@ PFLAGS = -messages=first -leaks-at-exit=yes -follow-child-processes=yes \
+ 
+ link nwchem_link:    
+ 	@/bin/rm -f nwchem.o stubs.o
+-	$(MAKE) nwchem.o stubs.o
++	$(MAKE) util/errquit.o peigs/src/f77/xstop.o nwchem.o stubs.o
+ ifeq ($(TARGET),SOLARIS)
+ 	/bin/rm -f $(BINDIR)/$(NWBINNAME)
+ endif
+-	$(PURIFY) $(LINK.f) -o $(BINDIR)/$(NWBINNAME) nwchem.o stubs.o -lnwctask $(LIBS)
++	$(PURIFY) $(LINK.f) -o $(BINDIR)/$(NWBINNAME) util/errquit.o peigs/src/f77/xstop.o nwchem.o stubs.o -lnwctask $(LIBS)
+ ifdef SUMO
+ 	$(AR) rcv $(LIBDIR)/libnwchem-sumo.a $(LIBDIR)/objs/*.o
+ 	$(RANLIB) $(LIBDIR)/libnwchem-sumo.a
+diff --git a/src/nwchem.F b/src/nwchem.F
+index 396f94c75c..4b73ad6e0c 100644
+--- a/src/nwchem.F
++++ b/src/nwchem.F
+@@ -1,5 +1,46 @@
+       program nwchem
++
++!--------------------------------------------------------------------------------------------
++      USE iso_c_binding, ONLY: C_INT
++      USE blasFiHandler
++      !USE blasFiHandler_2
+       implicit none
++
++      intrinsic signal
++
++      ! BlasFi Data types
++      ! Variable storing total number of MPI ranks
++      integer(kind=4) :: numRanks = 0;
++      ! Variable storing MPI rank of the process
++      integer(kind=4) :: myRank   = -1;
++      ! Whether MPI rank was chosen for FI
++      integer(kind=4) :: choice   = 0;
++
++      interface
++          function blasFiInit_f(rank) bind(C, name="blasFiInit")
++              USE, intrinsic :: iso_c_binding, ONLY: C_INT
++              IMPLICIT NONE
++              integer(kind=C_INT) :: blasFiInit_f
++              integer(kind=C_INT), INTENT(IN), VALUE :: rank
++          endfunction
++      endinterface
++
++      interface
++          function blasFiSet_f() bind(C, name="blasFiSet")
++              USE, intrinsic :: iso_c_binding, ONLY: C_INT
++              IMPLICIT NONE
++              integer(kind=C_INT) :: blasFiSet_f
++          endfunction
++      endinterface
++
++      interface
++          subroutine blasFiPrint_f() bind(C, name="blasFiPrint")
++              IMPLICIT NONE
++          end subroutine
++      endinterface
++
++#include "mpif.h"
++!--------------------------------------------------------------------------------------------
+ #include "errquit.fh"
+ #include "mafdecls.fh"
+ #include "global.fh"
+@@ -7,8 +48,8 @@
+ #ifdef USE_TCGMSG
+ #include "tcgmsg.fh"
+ #else
+-      integer nodeid
+-      external nodeid
++      integer nodeid, nnodes
++      external nodeid, nnodes
+ #endif
+ #include "pstat.fh"
+ #include "util.fh"
+@@ -65,6 +106,7 @@ C>
+ C> provides details on the codes capabilities.
+ C>
+ C> Copyright (c) 1994-2020 Pacific Northwest National Laboratory, Battelle Memorial Institute
++C> Copyright (C) 2022 Intel Corporation (HDFIT components)
+ C>
+ C> Environmental Molecular Sciences Laboratory (EMSL)<br>
+ C> Pacific Northwest National Laboratory<br>
+@@ -103,6 +145,34 @@ c     Initialize timers so they are relative to job start
+ c
+       total_wall = -util_wallsec()
+       total_cpu  = -util_cpusec()
++
++!--------------------------------------------------------------------------------------------
++      numRanks = nnodes()
++      myRank = nodeid()
++      if(blasFiInit_f(myRank)<0) then 
++        WRITE(*,*) 'blasFiInit failed'
++        stop 1
++      end if
++  
++      ! Setting custom abort and signal handlers
++      nw_hook => blasfi_print
++      !nw_hook_2 => blasfi_print
++      call signal(15, nw_signal_handler)
++      call rankChooseForFi(numRanks, myRank, choice)
++
++      if(choice < 0) then
++        WRITE(*,*) 'rankChooseForFi failed'
++        stop 1
++      end if
++
++      if(choice == 1) then
++        if(blasFiSet_f()<0) then 
++           WRITE(*,*) 'blasFiSet failed'
++           stop 1
++        end if
++      end if
++!--------------------------------------------------------------------------------------------
++
+ c
+ c     Only process 0 opens the input file 
+ c     (note that ga_nodeid() does not work yet!)
+@@ -386,6 +456,10 @@ c
+       call ecce_print1('all tasks cpu time',mt_dbl,total_cpu,1)
+       call ecce_print1('all tasks wall time',mt_dbl,total_wall,1)
+       call ga_sync()
++!--------------------------------------------------------------------------------------------
++      call blasFiPrint_f()
++!--------------------------------------------------------------------------------------------
++
+ c
+ c     Tidy up the global memory
+ c
+@@ -395,13 +469,64 @@ c     Tidy up the parallel environment
+ c
+       call pend()
+ c
+-c     Close the ECCE' output file if there is one
++c     Close the ECCE output file if there is one
+ c
+       call ecce_print_file_close()
+ c
+ c     Done
+ c
+-      end
++!--------------------------------------------------------------------------------------------
++      CONTAINS
++      SUBROUTINE blasfi_print()
++        call blasFiPrint_f()
++      END SUBROUTINE blasfi_print
++
++      SUBROUTINE nw_signal_handler()
++        call blasFiPrint_f()
++        stop 15
++      END SUBROUTINE nw_signal_handler
++
++      SUBROUTINE rankChooseForFi(mpiSize, mpiRank, chosen)
++          INTEGER(kind=4), INTENT(in)  :: mpiSize, mpiRank
++          INTEGER(kind=4), INTENT(out) :: chosen
++          INTEGER(kind=4) :: mpiRankFi, ierr
++          REAL :: randNum
++
++          chosen = -1
++          IF (mpiSize < 1) THEN
++              WRITE(*,*) "mpiSize <= 0"
++              RETURN
++          END IF
++
++          mpiRankFi = -1
++          IF (mpiRank == 0) THEN
++              call random_number(randNum)
++              mpiRankFi = FLOOR(randNum * mpiSize)
++          END IF
++
++          call MPI_BCAST(mpiRankFi,1,MPI_INTEGER,0,MPI_COMM_WORLD,ierr)
++          if (ierr .NE. MPI_SUCCESS) THEN
++              WRITE(*,*) "Error in MPI_Bcast"
++              RETURN
++          END IF
++
++          IF (mpiSize < mpiRankFi) THEN
++              WRITE(*,*) "mpiRankFi larger than mpiSize"
++              RETURN
++          END IF
++
++          IF (mpiRankFi == mpiRank) THEN
++              chosen = 1
++          ELSE
++              chosen = 0
++          END IF
++
++          RETURN
++
++      END SUBROUTINE rankChooseForFi
++      END PROGRAM nwchem
++!--------------------------------------------------------------------------------------------
++
+       subroutine nwchem_banner(input_filename, rtdb_name, ostartup,
+      &    ocontinue)
+       implicit none
+diff --git a/src/peigs/src/f77/xstop.f b/src/peigs/src/f77/xstop.f
+index 8e1a9830a6..ba915f15c1 100644
+--- a/src/peigs/src/f77/xstop.f
++++ b/src/peigs/src/f77/xstop.f
+@@ -31,7 +31,27 @@
+ *     July 28, 1995
+ *
+ *======================================================================
++! Copyright (C) 2022 Intel Corporation (HDFIT components)
++! SPDX-License-Identifier: ECL-2.0
++
++!--------------------------------------------------------------------------------------------
++      module blasFiHandler_2
++      implicit none
++
++      INTERFACE
++          SUBROUTINE nw_abort_interface_2()
++          END SUBROUTINE nw_abort_interface_2
++      END INTERFACE
++
++      PROCEDURE(nw_abort_interface_2), POINTER :: nw_hook_2 => Null()
++
++      end module blasFiHandler_2
++!--------------------------------------------------------------------------------------------
++
+       SUBROUTINE XSTOP( INFO )
++!--------------------------------------------------------------------------------------------
++      use blasFiHandler_2
++!--------------------------------------------------------------------------------------------
+ *
+ *  Stop program execution and print value of info.
+ *
+@@ -42,6 +62,9 @@
+       WRITE( *, *) ' ME = ', MXMYND(),
+      $             ' Exiting via XSTOP.  INFO = ', INFO
+ 
++!--------------------------------------------------------------------------------------------
++      CALL nw_hook_2()
++!--------------------------------------------------------------------------------------------
+       CALL MXPEND()
+ 
+       STOP
+diff --git a/src/util/errquit.F b/src/util/errquit.F
+index 3fd9df9773..aa1cc8069d 100644
+--- a/src/util/errquit.F
++++ b/src/util/errquit.F
+@@ -1,4 +1,23 @@
++! Copyright (C) 2022 Intel Corporation (HDFIT components)
++! SPDX-License-Identifier: ECL-2.0
++!--------------------------------------------------------------------------------------------
++      module blasFiHandler
++      implicit none
++
++      INTERFACE
++          SUBROUTINE nw_abort_interface()
++          END SUBROUTINE nw_abort_interface
++      END INTERFACE
++      
++      PROCEDURE(nw_abort_interface), POINTER :: nw_hook => Null()
++
++      end module blasFiHandler
++!--------------------------------------------------------------------------------------------
++
+       subroutine errquit(string, icode, errcode)
++!--------------------------------------------------------------------------------------------
++      use blasfiHandler
++!--------------------------------------------------------------------------------------------
+       implicit none
+ C$Id$
+ #include "errquit.fh"
+@@ -140,6 +159,9 @@ c
+       write(LuOut,*) 'For further details see manual section: ',
+      &     man_sec
+ 
++!--------------------------------------------------------------------------------------------
++      call nw_hook()
++!--------------------------------------------------------------------------------------------
+       call util_flush(LuOut)
+       call ga_error(string, icode)
+ c
+-- 
+2.25.1
+

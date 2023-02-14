@@ -1,13 +1,13 @@
 # HDFIT.ScriptsHPC
 
-This repository is part of the Hardware Design Fault Injection Toolkit (HDFIT). HDFIT enables end-to-end fault injection experiments and comprises additionally [HDFIT.NetlistFaultInjector](https://github.com/intel-sandbox/HDFIT.NetlistFaultInjector) and [HDFIT.SystolicArray](https://github.com/intel-sandbox/HDFIT.SystolicArray).
+This repository is part of the Hardware Design Fault Injection Toolkit (HDFIT). HDFIT enables end-to-end fault injection experiments and comprises additionally [HDFIT.NetlistFaultInjector](https://github.com/IntelLabs/HDFIT.NetlistFaultInjector) and [HDFIT.SystolicArray](https://github.com/IntelLabs/HDFIT.SystolicArray).
 
 <p align="center" width="100%">
     <img src="HDFIT.png" alt="HDFIT HPC Toolchain" width="80%"/>
 </p>
 
 This repository contains the main components of the HDFIT HPC reliability benchmark in order to carry out fault injection experiments on a 
-variety of HPC applications, targeting either BLAS GEMM operations (using the proof-of-concept systolic array design implemented in [HDFIT.SystolicArray](https://github.com/intel-sandbox/HDFIT.SystolicArray)) or generic floating-point FPU operations. 
+variety of HPC applications, targeting either BLAS GEMM operations (using the proof-of-concept systolic array design implemented in [HDFIT.SystolicArray](https://github.com/IntelLabs/HDFIT.SystolicArray)) or generic floating-point FPU operations. 
 
 ## Directory Structure
 

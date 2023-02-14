@@ -49,6 +49,16 @@ def loadDmp(fPaths, appName):
             return loadDmpQMCPACK(fPaths)
         elif appName=="LAMMPS":
             return loadDmpLAMMPS(fPaths)
+        elif appName=="MILC":
+            return loadDmpMILC(fPaths)
+        elif appName=="MINIW":
+            return loadDmpMINIW(fPaths)
+        elif appName=="SEISSOL":
+            return loadDmpSEISSOL(fPaths)
+        elif appName=="GROMACS":
+            return loadDmpGROMACS(fPaths)
+        elif appName=="GADGET":
+            return loadDmpGADGET(fPaths)
         else:
             raise ValueError("Application type unknown!")
     except IOError:
@@ -118,7 +128,11 @@ def loadFaultInfo(fPath):
 
     opsCnt0 = re.search("(?<=Rank 0: OpsCnt = )[0-9]+(?=\n)", fText)
     opsCntR = re.search("(?<=Rank " + rank.group(0) + ": OpsCnt = )[0-9]+(?=\n)", fText)
-    opsCnt = opsCntR if opsCnt0 is None else opsCnt0
+    # Picking as total ops count, in this order:
+    # 1) Ops count of rank 0, if available
+    # 2) Ops count of FI rank, if available
+    # 3) Ops count at time of FI, on FI rank
+    opsCnt = opsCnt0 if opsCnt0 is not None else opsCntR if opsCntR is not None else fiop
 
     if opsCnt is None:
         raise IOError("Missing ops count information in file %s!" % fPath)
@@ -204,6 +218,230 @@ def loadResidualsHPL(fPath):
     resVal  = re.search("(?<==   )\s*[0-9ena\.\+\-]+", resLine.group(0))
     return resVal.group(0).strip()
 
+# ---------------------------------- GADGET Parser -----------------------------------
+
+def loadDmpGADGET(fPaths):
+    """
+    A parser for GADGET output data.
+
+    This function uses the h5py module to parse the output of
+    HDF5 files produced by GADGET simulations. This consists
+    of multiple metrics, whose IDs are retrieved dynamically.
+
+    Parameters:
+        fPaths (list[string]): Paths to files to be parsed
+
+    Returns:
+        list[np.array]: Matrices with parsed data
+    """
+    # h5py required to parse output files
+    import h5py
+    dmpMats = {}
+
+    for fp in fPaths:
+        f = h5py.File(fp, "r")
+
+        # Parsing and concatenating all specified netCDF files
+        for part in f.keys():
+            if "PartType" in part:
+                for met in f[part].keys():
+                    if "ParticleIDs" not in met:
+                        metID = part + met
+                        tmpMet = np.reshape(f[part][met][:].flatten(), (1, -1))
+                        dmpMats[metID] = np.copy(tmpMet) if metID not in dmpMats else np.concatenate((dmpMats[metID], tmpMet), axis=0)
+
+    return [dmpMats[met] if met in dmpMats else np.zeros((1,1)) for met in dmpMats.keys()]
+
+# ---------------------------------- GROMACS Parser ----------------------------------
+
+def loadDmpGROMACS(fPaths):
+    """
+    A parser for GROMACS output data.
+
+    This function currently supports GROMACS trajectory data that has been converted
+    to text form using the gmx dump utility. As such, position, velocity and force
+    data is parsed - energy data is not currently supported.
+
+    Parameters:
+        fPaths (list[string]): Paths to files to be parsed
+
+    Returns:
+        list[np.array]: Matrices with parsed data
+    """
+# ---------- Helper function
+    def parseLineGROMACS(line):
+        line = line.split('{')[1][0:-1]
+        splitLine = [el.strip() for el in line.split(",") if el.strip()!=""]
+        return parseFloats(splitLine)
+# ----------
+
+    metrics = ['x[', 'v[', 'f[']
+    dmpMats = {}
+    for met in metrics:
+        dmpMats[met] = []
+
+    for fp in fPaths:
+        if ".txt" in fp:
+            f = open(fp, 'r')
+            for line in f:
+                line = line.strip()
+                met = line[0:2]
+                if met in metrics:
+                    dmpMats[met].append(parseLineGROMACS(line))
+
+    return [np.array(dmpMats[met], ndmin=2) if len(dmpMats[met]) > 0 else np.zeros((1,1)) for met in metrics]
+
+# ------------------------------------ SEISSOL Parser ------------------------------------
+
+def loadDmpSEISSOL(fPaths):
+    """
+    A parser for SeisSol data.
+
+    At the moment, this function parses the content of SeisSol
+    receiver files. When multiple files are specified, their
+    contents are simply concatenated, differentiating between
+    normal "receiver" files and "faultreceiver" ones. This leads
+    to one large matrix containing data from all receivers: this
+    is then split column-wise, returning each metric separately.
+
+    Parameters:
+        fPaths (list[string]): Paths to files to be parsed
+
+    Returns:
+        list[np.array]: Matrices with parsed data
+    """
+# ---------- Helper function
+    def parseReceiverSEISSOL(fPathInt):
+        f = open(fPathInt, 'r')
+        tmpMat = []
+        lineCnt = 0
+
+        for line in f:
+            lineCnt = lineCnt + 1
+            if lineCnt > 2 and line[0] != "#":
+                splitLine = [el.strip() for el in line.split(" ") if el.strip()!=""]
+                # Dropping the timestep field
+                tmpMat.append(parseFloats(splitLine[1:]))
+
+        if len(tmpMat)==0:
+            raise IOError("Empty SEISSOL receiver file!")
+
+        # Discarding index column
+        return np.array(tmpMat, ndmin=2)
+
+    def parseXDMFSEISSOL(fPathInt):
+        # Note: the XDMF parser for SEISSOL requires an ad-hoc Python module
+        # and is therefore disabled by default. Including XDMF surface files
+        # did not yield significant NRMSE differences during testing
+        import seissolxdmf
+        surDat = {}
+        sx = seissolxdmf.seissolxdmf(fPathInt)
+        for met in sx.ReadAvailableDataFields():
+            if met != "partition":
+                surDat[met] = np.reshape(sx.ReadData(met).flatten(), (1, -1))
+        return surDat
+# ----------
+    recDat = None
+    fauDat = None
+    surDat = []
+
+    for fp in fPaths:
+        if "faultreceiver" in fp:
+            recTmp = parseReceiverSEISSOL(fp)
+            fauDat = np.copy(recTmp) if fauDat is None else np.concatenate((fauDat, recTmp), axis=0)
+        elif "receiver" in fp:
+            recTmp = parseReceiverSEISSOL(fp)
+            recDat = np.copy(recTmp) if recDat is None else np.concatenate((recDat, recTmp), axis=0)
+        # Below branch disabled by default
+        elif "xdmf" in fp and False:
+            surTmp = parseXDMFSEISSOL(fp)
+            surDat.append(surTmp)
+
+    # Separating single columns of the final matrix
+    outMat = [recDat[:, idx] for idx in range(recDat.shape[1])]
+    if fauDat is not None:
+        outMat = outMat + [fauDat[:, idx] for idx in range(fauDat.shape[1])]
+    if len(surDat) > 0:
+        outMat = outMat + [tmpDat[met] for tmpDat in surDat for met in tmpDat.keys()]
+
+    return outMat
+
+# ---------------------------------- MINIW Parser -----------------------------------
+
+def loadDmpMINIW(fPaths):
+    """
+    A parser for MiniWeather output data.
+
+    This function uses the netCDF4 module to parse the output of
+    MiniWeather runs. This consists of several metrics (indicated by
+    the metrics list), each sampled over a t,x,z domain. The x,z images
+    are concatenated over all timestamps (as this does not impact NRMSE
+    computation anyway) for each metric separately, and then returned.
+
+    Parameters:
+        fPaths (list[string]): Paths to files to be parsed
+
+    Returns:
+        list[np.array]: Matrices with parsed data
+    """
+    # netCDF required to parse MiniWeather output files
+    import netCDF4
+    dmpMats = {}
+    metrics = ['dens', 'uwnd', 'wwnd', 'theta']
+
+    for fp in fPaths:
+        nc = netCDF4.Dataset(fp)
+
+        # Parsing and concatenating all specified netCDF files
+        for met in metrics:
+            tmpMet = np.reshape(nc.variables[met][:].flatten(), (1, -1))
+            dmpMats[met] = np.copy(tmpMet) if met not in dmpMats else np.concatenate((dmpMats[met], tmpMet), axis=0)
+
+    return [dmpMats[met] if met in dmpMats else np.zeros((1,1)) for met in metrics]
+
+# ----------------------------------- MILC Parser -----------------------------------
+
+def loadDmpMILC(fPaths):
+    """
+    A parser for MILC output data.
+
+    This function parses relevant metrics generated by MILC's su3_rhmc_hisq and
+    su3_rhmd_hisq executables. The specific list of metrics is indicated by the
+    dataDict and idxDict dictionaries - after parsing, each metric ends up in
+    a separate matrix.
+
+    Parameters:
+        fPaths (list[string]): Paths to files to be parsed
+
+    Returns:
+        list[np.array]: Matrices with parsed data
+    """
+
+# ---------- Helper function
+    def parseLineMILC(line, idx):
+        line = line.replace("\t", " ")
+        splitLine = [el.strip() for el in line.split(" ") if el.strip()!=""]
+        return parseFloats(splitLine[idx[0]:idx[1]])
+# ----------
+    dmpMats = []
+    # Dictionary of supported metrics for parsing
+    dataDict = {"G_LOOP" : [], "P_LOOP" : [], "ACTION" : [], "GACTION" : [], 
+                "FACTION" : [], "PBP" : [], "PLAQ" : []}
+    # Dictionary of indices to use for parsing lines
+    idxDict = {"G_LOOP" : (4, 5), "P_LOOP" : (1, 3), "ACTION" : (3, 7), "GACTION" : (1, 2),
+               "FACTION" : (4, 5), "PBP" : (3,7), "PLAQ" : (1, 3)}
+
+    for fp in fPaths:
+        f = open(fp, 'r')
+        for line in f:
+            tok = line.split(":")[0]
+            if tok in dataDict:
+                dataDict[tok].append(parseLineMILC(line, idxDict[tok]))
+
+    for met in dataDict:
+        dmpMats.append(np.array(dataDict[met], ndmin=2) if len(dataDict[met])>0 else np.zeros((1,1)))
+    return dmpMats
+
 # ------------------------------------ QE Parser ------------------------------------
 
 def loadDmpQE(fPaths):
@@ -223,7 +461,7 @@ def loadDmpQE(fPaths):
     """
 # ---------- Helper function
     def parseLineQE(line):
-        line.replace("\n", " ")
+        line = line.replace("\n", " ")
         splitLine = [el.strip() for el in line.split(" ") if el.strip()!=""]
         return parseFloats(splitLine)
 # ----------

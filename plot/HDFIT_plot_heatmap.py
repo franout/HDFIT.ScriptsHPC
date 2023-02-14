@@ -17,6 +17,7 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 
 from HDFIT_plot_utils import *
+from matplotlib.colors import LogNorm
 import sys, argparse
 import logging as log
 import matplotlib.pyplot as plt
@@ -35,6 +36,7 @@ def main():
     parser.add_argument("-cbins", action="store", dest="code_bins", type=HDFIT_intPos, default=8, help="Number of code position bins")
     parser.add_argument("--uoe", action="store_true", dest="exclude_uoe", help="Exclude runs resulting in UOE")
     parser.add_argument("--rtl", action="store_false", dest="exclude_rtl", help="Include runs containing RTL errors")
+    parser.add_argument("--nrmse", action="store_true", dest="show_nrmse", help="Show SDE NRMSEs instead of failure rate")
     args = parser.parse_args()
     
     # Getting parsed arguments
@@ -43,8 +45,13 @@ def main():
     exclude_rtl  = args.exclude_rtl
     bit_buckets  = args.bit_bins
     code_buckets = args.code_bins
+    show_nrmse   = args.show_nrmse
     fault_log    = args.path
    
+    # Additional checks on user input
+    if show_nrmse and not exclude_uoe:
+        raise ValueError("Cannot use the --nrmse mode if --uoe is not speficied as well.")
+
     # Loading and unpacking data
     dataDict = loadData(fault_log)
     failure  = dataDict[HDFIT.testFail]
@@ -64,15 +71,25 @@ def main():
     stepC = np.ceil(maxInstr / code_buckets)
     stepI = np.ceil(bit_depth / bit_buckets)
     cntMat = np.zeros((code_buckets, bit_buckets))
-    faultMat = np.zeros((code_buckets, bit_buckets)) + 1
+    faultMat = np.zeros((code_buckets, bit_buckets))
 
     for idx in range(max_row):
         if bitPos[idx] < bit_depth:
             codeIdx = int(np.floor((instrPos[idx]) / stepC)) if instrPos[idx] < maxInstr else code_buckets - 1
             bitIdx = int(np.floor(bitPos[idx] / stepI))
-            faultMat[codeIdx, bitIdx] = faultMat[codeIdx, bitIdx] + 1
-            if agg_failure[idx]:
-                cntMat[codeIdx, bitIdx] = cntMat[codeIdx, bitIdx] + 1
+
+            # in --nrmse mode, we only consider runs with SDE (discarding Infs and NaNs)
+            # In the default failure rate mode, we consider all runs
+            faultBuf = (agg_failure[idx] and np.isfinite(errors[idx])) if show_nrmse else 1
+            faultMat[codeIdx, bitIdx] = faultMat[codeIdx, bitIdx] + faultBuf
+            if faultBuf:
+                errBuf = (np.log10(errors[idx]) / 100) if show_nrmse else agg_failure[idx]
+                cntMat[codeIdx, bitIdx] = cntMat[codeIdx, bitIdx] + errBuf
+
+    faultMat = np.where(faultMat == 0.0, 1, faultMat)
+    if show_nrmse:
+        # If no SDEs are recorded for a given pixel, we assign NaN
+        cntMat = np.where(cntMat == 0.0, np.nan, cntMat)
 
     fontsize    = 14
     figsize     = [7, 5]
@@ -81,7 +98,8 @@ def main():
     plt.rc('ytick', labelsize=fontsize)
     fig, ax = plt.subplots(figsize=figsize)
 
-    ax = sns.heatmap(100 * cntMat / faultMat, linewidths=.5, ax=ax, cbar_kws={'label': FI_METRIC + ' [%]'}, cmap="inferno_r")
+    cbLabel = 'log10(NRMSE [%])' if show_nrmse else FI_METRIC + ' [%]'
+    ax = sns.heatmap(100 * cntMat / faultMat, linewidths=.5, ax=ax, cbar_kws={'label': cbLabel}, cmap="inferno_r")
     ax.figure.axes[-1].yaxis.label.set_size(fontsize)
     ax.set_xlabel("Bit Position", fontsize=fontsize)
     ax.set_ylabel("Op Position [%]", fontsize=fontsize)

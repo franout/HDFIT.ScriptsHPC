@@ -32,14 +32,20 @@ def main():
     parser.add_argument("-b", action="store", dest="bit_depth", type=HDFIT_intPos, default=64, help="Maximum fault injection bit")
     parser.add_argument("--uoe", action="store_true", dest="exclude_uoe", help="Exclude runs resulting in UOE")
     parser.add_argument("--rtl", action="store_false", dest="exclude_rtl", help="Include runs containing RTL errors")
+    parser.add_argument("--nrmse", action="store_true", dest="show_nrmse", help="Show SDE NRMSEs instead of failure rate")
     args = parser.parse_args()
     
     # Getting parsed arguments
     bit_depth   = args.bit_depth
     exclude_uoe = args.exclude_uoe
     exclude_rtl = args.exclude_rtl
+    show_nrmse   = args.show_nrmse
     fault_log   = args.path
     
+    # Additional checks on user input
+    if show_nrmse and not exclude_uoe:
+        raise ValueError("Cannot use the --nrmse mode if --uoe is not speficied as well.")
+
     # Loading and unpacking data
     dataDict  = loadData(fault_log)
     failure   = dataDict[HDFIT.testFail]
@@ -68,18 +74,25 @@ def main():
     agg_failure = np.asarray([(failure[idx]>0 or errors[idx]>0) and not ex_runs[idx] for idx in range(len(failure))])
     failure_per_bit = np.zeros(bit_depth)
     for id in bit_list:
-        mask = (fault == id)
-        failure_per_bit[id] = np.sum(agg_failure, where=mask)/fault_per_bit[id] if fault_per_bit[id]!=0 else 0
+        mask = [a and f==id and np.isfinite(e) for f,a,e in zip(fault,agg_failure,errors)] if show_nrmse else (fault == id)
+        failureBuf = np.log10(errors[mask]) / 100 if show_nrmse else agg_failure[mask]
+        failure_per_bit[id] = np.sum(failureBuf)/np.sum(mask) if np.any(mask) else 0
+
+    if show_nrmse:
+        # If no SDEs are recorded for a given bar, we assign NaN
+        failure_per_bit = np.where(failure_per_bit == 0.0, np.nan, failure_per_bit)
 		        
     failure_per_bit_file = f"{fault_log[0:-4]}_failure_rate_per_bit.png"
     plt.figure(figsize=(20,6))
     p = plt.bar(bit_list, failure_per_bit * 100, align='edge', width=0.8)
     plt.xticks(np.arange(bit_depth-1, -1, -1))
     plt.bar_label(p, fmt='%.0f', fontsize=6)    
-    plt.gca().invert_xaxis()    
+    plt.gca().invert_xaxis()
+    plt.ylabel(FI_METRIC + " [%]" if not show_nrmse else "log10(NRMSE [%])")
     plt.xlabel("Bit Position")
-    plt.ylabel(FI_METRIC + " [%]")
-    plt.ylim(0, 105)
+    if not show_nrmse:
+        plt.ylim(0, 105)
+
     plt.savefig(failure_per_bit_file, bbox_inches='tight')
     log.info(f"Failures per bit bar plot saved to {failure_per_bit_file}")   
  

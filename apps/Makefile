@@ -1,4 +1,7 @@
-include config.mk
+include ../config.mk
+
+# List of HPC applications to be compiled
+INSTALL_APPS = qmcpack cp2k nwchem qe remhos hpl
 
 qmcpack_REPO = --branch v3.12.0 https://github.com/QMCPACK/qmcpack qmcpack
 cp2k_REPO = --branch v9.1.0 --recursive https://github.com/cp2k/cp2k cp2k
@@ -9,7 +12,7 @@ remhos_REPO = https://github.com/CEED/Remhos remhos && cd remhos && git checkout
 hpl_TARBALL = http://www.netlib.org/benchmark/hpl/hpl-2.3.tar.gz
 
 .DEFAULT_GOAL := all
-.PHONY: all clean qmcpack cp2k nwchem qe remhos hpl
+.PHONY: all clean $(INSTALL_APPS)
 
 all: $(INSTALL_APPS)
 
@@ -20,7 +23,7 @@ qmcpack: qmcpack/.patched
 	@echo "Compiling $(@)..."
 	cd deps && make libxml2/.compiled libfftw/.compiled boost/.compiled hdf5/.compiled
 	cd $(@)/build && export FFTW_HOME=$(CURDIR)/deps/install && export HDF5_ROOT=$(CURDIR)/deps/install \
-	&& cmake -DCMAKE_C_COMPILER=$(MPICC) -DCMAKE_CXX_COMPILER=$(MPICXX) -DENABLE_SOA=1 -DQMC_MIXED_PRECISION=0 \
+	&& cmake -DCMAKE_C_COMPILER=$(MPICC) -DCMAKE_CXX_COMPILER=$(MPICXX) -DQMC_MIXED_PRECISION=0 \
 	-DBLAS_openblas_LIBRARY=$(OPENBLAS_ROOT)/libopenblas.so -DLIBXML2_INCLUDE_DIR=$(CURDIR)/deps/install/include/libxml2 \
 	-DLIBXML2_LIBRARY=$(CURDIR)/deps/install/lib/libxml2.so -DBoost_INCLUDE_DIR=$(CURDIR)/deps/install/include/ -DENABLE_OMP_TASKLOOP=OFF ../
 	cd $(@)/build && make -j $(MAKE_JOBS)

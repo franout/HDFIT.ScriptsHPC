@@ -434,6 +434,8 @@ def loadData(fault_log):
     except ValueError:
         log.warning("File %s does not appear to contain NRMSE error data." % fault_log)
         fDict[HDFIT.nrmse] = np.zeros(fDict[HDFIT.testFail].shape)
+    # Replace NaNs with Infs to simplify processing
+    fDict[HDFIT.nrmse] = np.where(np.isnan(fDict[HDFIT.nrmse]), np.inf, fDict[HDFIT.nrmse])
     # Read RTL error status (if available)
     try:
         fDict[HDFIT.rtlError] = np.genfromtxt(fault_log, skip_header=1, delimiter=',', usecols=10, dtype=int)

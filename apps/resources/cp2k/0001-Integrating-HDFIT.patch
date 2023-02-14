@@ -1,15 +1,14 @@
-From 953c4c4feb3b20f9642edf69356cb9365de1c1bc Mon Sep 17 00:00:00 2001
+From bd414003850197246e55741752d193f0eb7fb264 Mon Sep 17 00:00:00 2001
 From: Alessio Netti <alessio.netti@intel.com>
 Date: Tue, 22 Mar 2022 14:01:26 +0100
 Subject: [PATCH] Integrating HDFIT
 
 ---
  Makefile                          |   4 +
- README.md                         |  42 ++++++
  src/start/cp2k_runs.F             | 122 ++++++++++++++++
  tools/precommit/package-lock.json | 235 +++++++++++-------------------
  tools/precommit/package.json      |   2 +-
- 5 files changed, 256 insertions(+), 149 deletions(-)
+ 4 files changed, 214 insertions(+), 149 deletions(-)
 
 diff --git a/Makefile b/Makefile
 index 22ae38b58..f923be336 100644
@@ -26,59 +25,6 @@ index 22ae38b58..f923be336 100644
  %.o: %.F
  	$(TOOLSRC)/build_utils/fypp $(FYPPFLAGS) $< $*.F90
  	$(FC) -c $(FCFLAGS) -D__SHORT_FILE__="\"$(subst $(SRCDIR)/,,$<)\"" -I'$(dir $<)' $(OBJEXTSINCL) $*.F90 $(FCLOGPIPE)
-diff --git a/README.md b/README.md
-index f2239ad1a..73e9855f5 100644
---- a/README.md
-+++ b/README.md
-@@ -14,6 +14,48 @@ or dimer method.
- CP2K is written in Fortran 2008 and can be run efficiently in parallel using
- a combination of multi-threading, MPI, and CUDA.
- 
-+# Important Information for HDFIT Integration
-+
-+This version of CP2K is instrumented to perform fault injection based on the custom HDFIT OpenBLAS library. Here we describe the
-+overall compilation and execution process.
-+
-+## Compilation
-+Compilation is the same as in the standard CP2K distribution - when cloning this repository, please remember to use the __--recursive__ option, 
-+since CP2K relies on git submodules. For most use cases, the following commands will carry out compilation successfully:
-+
-+```
-+export PATH=PATH_TO_CUSTOM_OPENBLAS_LIB:$PATH
-+export LD_LIBRARY_PATH=PATH_TO_CUSTOM_OPENBLAS_LIB:$LD_LIBRARY_PATH
-+
-+cd tools/toolchain && ./install_cp2k_toolchain.sh --with-openblas=system --with-elpa=no --with-pexsi=no --with-cosma=no
-+cp install/arch/* ../../arch/ && cd ../../
-+source tools/toolchain/install/setup
-+make -j 8 ARCH=local VERSION="ssmp sdbg psmp pdbg"
-+```
-+
-+Replace __PATH\_TO\_CUSTOM\_OPENBLAS\_LIB__ with the path to the main OpenBLAS directory. On top of BLAS, CP2K requires the Libint, Libxc, 
-+Libxsmm and FFTW libraries, among others. The toolchain script described above will install all dependencies automatically, without any 
-+additional input required from the user - the only exception is the Zlib library, which must be installed on the system beforehand.
-+
-+## Running Experiments
-+
-+This distribution comes with two different sample configurations: 
-+
-+* Water molecule, energy and forces calculation (__H2O.inp__ within in.H2O directory)
-+* Ethene molecule, energy and forces calculation (__C2H4.inp__ within in.C2H4 directory)
-+
-+No molecular dynamics inputs were included, since the underlying algorithms make very little use of GEMM operations. 
-+In order to run a simulation, please create a new sub-directory within the chosen configuration's directory - this will 
-+contain all output files.  Here is an example for the execution of an Ethene simulation:
-+
-+```
-+cd in.C2H4
-+mkdir out && cd out
-+OMP_NUM_THREADS=1 mpirun -np 1 ../../exe/local/cp2k.popt -i ../C2H4.inp
-+```
-+
-+Each of the sample input configurations comes with a corresponding shell script for testing purposes (e.g., __CP2K-test-C2H4.env__ for the Ethene configuration). These are meant to be used in conjunction with the HDFIT runner script for HPC applications.
-+
- ## Downloading CP2K source code
- 
- To clone the current master (development version):
 diff --git a/src/start/cp2k_runs.F b/src/start/cp2k_runs.F
 index 9bbde003a..7a9453c84 100644
 --- a/src/start/cp2k_runs.F

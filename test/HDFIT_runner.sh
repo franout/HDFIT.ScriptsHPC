@@ -26,8 +26,6 @@ fi
 
 # Base directory of this script
 export FI_THISDIR=$(dirname $(realpath "$BASH_SOURCE"))
-# Full path to OpenBLAS .so file - necessary for some applications
-export FI_PRELOAD=PATH_TO_CUSTOM_OPENBLAS_LIB/libopenblas.so
 # Activates experiment recovery (e.g., if an HPC job fails)
 export FI_RECOVER=0
 # Enables automatic CPU core pinning (works only for single-node jobs)

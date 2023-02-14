@@ -31,6 +31,10 @@ export FI_RESDIR_SUP=$FI_BASEDIR/"out."$FI_CONFNAME
 export FI_CONFDIR=$FI_BASEDIR/"in."$FI_CONFNAME
 # Experiment name
 export FI_TASKNAME="HDFIT_${FI_APPNAME}_${FI_CONFNAME}_$(date +%d-%m-%Y)"
+# Parsing the paths to required libraries from the parent config.mk file
+OPENBLAS_PATH=$(cat $FI_THISDIR/../config.mk | grep -aoP "(?<=OPENBLAS_ROOT = ).*")
+LLTFI_PATH=$(cat $FI_THISDIR/../config.mk | grep -aoP "(?<=LLTFI_ROOT = ).*")
+export FI_PRELOAD="$OPENBLAS_PATH/libopenblas.so:$LLTFI_PATH/runtime_lib/libllfi-rt.so"
 
 # Performs special pre-processing for some applications' input
 doSpecialInput()
@@ -49,6 +53,12 @@ doSpecialOutput()
         # Coded ad-hoc for the NWCHEM 3carbo_dft input with 16 atoms
         if [ $FI_APPNAME = "NWCHEM" ] && [ $FI_CONFNAME = "3carbo" ]; then
                 cat $FI_RESDIR/run$1.log | grep -a -A20 "DFT ENERGY GRADIENTS" > Bzisox_qmd.dft
+        # MILC only writes to stdout - creating an ad-hoc output file
+        elif [ $FI_APPNAME = "MILC" ]; then
+                cat $FI_RESDIR/run$1.log > $FI_CONFNAME.sample-out
+        # Converting the GROMACS binary format to text
+        elif [ $FI_APPNAME = "GROMACS" ]; then
+                LD_PRELOAD=$FI_PRELOAD $FI_COMMAND dump -f traj.trr > traj.txt 2>/dev/null
         fi
 }
 
@@ -70,8 +80,8 @@ doApplicationRun()
 	fi
 
 	TIMESTART=$(date +%s%3N)
-	timeout -k 60s $FI_TIMEOUT mpirun -x LD_PRELOAD=$FI_PRELOAD -np $FI_MPIRANKS $CPU_MAP \
-		       $FI_COMMAND $FI_INPUT > $FI_RESDIR/run$1.log 2>&1
+	timeout -k 60s $FI_TIMEOUT mpirun -x LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$FI_THISDIR/../apps/deps/install/lib \
+		       -x LD_PRELOAD=$FI_PRELOAD -np $FI_MPIRANKS $CPU_MAP $FI_COMMAND $FI_INPUT > $FI_RESDIR/run$1.log 2>&1
 
 	FI_RETCODE=$?
 	echo $FI_RETCODE > $FI_RESDIR/run$1.retcode
@@ -81,6 +91,8 @@ doApplicationRun()
 		doSpecialOutput $1
 		mv $FI_OUTPUT $FI_RESDIR/run$1.DAT/ 2>/dev/null
 	fi
+	# Wiping out directory contents just in case
+	rm -rf $FI_CONFDIR/run$2/*
 
 	# Performing logging
 	if [[ $FI_RETCODE -ne 0 ]]
@@ -173,6 +185,10 @@ fi
 
 # Extracting number of BLAS operations from golden run
 export BLASFI_OPSCNT=$(cat $FI_RESDIR/run0.log | grep -aoP "(?<=Rank 0: OpsCnt = )[0-9]+")
+# Resolving wildcards and computing expanded list of output files
+if [ ! -z "$FI_OUTPUT" ]; then
+	export FI_OUTPUT_EXP=$(cd $FI_RESDIR/run0.DAT && ls -d $FI_OUTPUT | tr "\n" " ")
+fi
 
 # ----- TRANSIENT FAULTS -----
 export BLASFI_MODE="TRANSIENT"
@@ -183,5 +199,5 @@ export FI_RESDIR="$FI_RESDIR_SUP/fi-transient"
 echo "Performing transient faults experiment..."
 doExperiment $FI_NUMRUNS $FI_PARRUNS
 echo "Computing summary CSV file..."
-python3 $FI_THISDIR/HDFIT_computeCSV.py $FI_APPNAME $FI_RESDIR $BLASFI_OPSCNT $FI_OUTPUT > "$FI_RESDIR_SUP/$FI_TASKNAME.csv"
+python3 $FI_THISDIR/HDFIT_computeCSV.py $FI_APPNAME $FI_RESDIR $BLASFI_OPSCNT $FI_OUTPUT_EXP > "$FI_RESDIR_SUP/$FI_TASKNAME.csv"
 

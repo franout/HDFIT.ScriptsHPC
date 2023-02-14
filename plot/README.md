@@ -20,10 +20,10 @@ rank, op-cnt expected, op-fi, fi-bit, op-cnt got, test pass cnt, test fail cnt, 
 Where each specific field describes the following:
 
 * __rank__: MPI rank targeted by fault injection.
-* __op-cnt expected__: total number of GEMM operations for MPI rank 0, as measured during a golden run.
-* __op-fi__: ID of the GEMM operation (for the chosen MPI rank) that is targeted by fault injection.
+* __op-cnt expected__: total number of operations for MPI rank 0, as measured during a golden run.
+* __op-fi__: ID of the operation (for the chosen MPI rank) that is targeted by fault injection.
 * __fi-bit__: bit that is targeted by fault injection (e.g., from 0 to 63 for double-precision floating-point). 
-* __op-cnt got__: measured number of GEMM operations, for MPI rank 0, on this run.
+* __op-cnt got__: measured number of operations, for MPI rank 0, on this run.
 * __test pass cnt__: number of passed tests for this run. In most cases, this is equal to 1 if the application succeeds, and 0 otherwise.
 * __test fail cnt__: number of failed tests for this run. In most cases, this is equal to 1 - test pass cnt.
 * __return code__: return code of the application for this run.

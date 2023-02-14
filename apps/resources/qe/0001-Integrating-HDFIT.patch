@@ -1,4 +1,4 @@
-From 30ee52301bb061b562056351bf6723848e8c1462 Mon Sep 17 00:00:00 2001
+From abbb1a594026e87275a5bcbe0f6700fb5101a71a Mon Sep 17 00:00:00 2001
 From: "Netti, Alessio" <alessio.netti@intel.com>
 Date: Wed, 13 Apr 2022 09:38:49 +0200
 Subject: [PATCH] Integrating HDFIT
@@ -7,12 +7,11 @@ Subject: [PATCH] Integrating HDFIT
  LAXlib/la_error.f90        |  22 +++++++
  PW/src/pwscf.f90           | 128 +++++++++++++++++++++++++++++++++++++
  PW/src/run_pwscf.f90       |  23 +++++++
- README.md                  |  40 ++++++++++++
  UtilXlib/error_handler.f90 |  22 +++++++
  environment_variables      |   2 +-
  test-suite/CMakeLists.txt  |   2 +-
  test-suite/ENVIRONMENT     |   2 +-
- 8 files changed, 238 insertions(+), 3 deletions(-)
+ 7 files changed, 198 insertions(+), 3 deletions(-)
 
 diff --git a/LAXlib/la_error.f90 b/LAXlib/la_error.f90
 index e1b70a42b..9606e7307 100644
@@ -268,57 +267,6 @@ index b31516afa..cf9b7043b 100644
    !
    CALL qmmm_shutdown()
    !
-diff --git a/README.md b/README.md
-index 73dd855cb..54e5de5c4 100644
---- a/README.md
-+++ b/README.md
-@@ -6,6 +6,46 @@ Optimization)
- 
- [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
- 
-+# Important Information for HDFIT Integration
-+
-+This version of Quantum Espresso (QE) is instrumented to perform fault injection based on the custom HDFIT OpenBLAS library. Here we describe the
-+overall compilation and execution process.
-+
-+## Compilation
-+
-+Compiling this is the same as compiling the standard QE distribution - for most use cases, the following commands will suffice:
-+
-+```
-+export PATH=PATH_TO_CUSTOM_OPENBLAS_LIB:$PATH
-+mkdir build && cd build
-+cmake ../ -DQE_ENABLE_MPI=ON -DBLA_VENDOR=OpenBLAS
-+make -j 8
-+```
-+
-+Replace __PATH\_TO\_CUSTOM\_OPENBLAS\_LIB__ with the path to the main OpenBLAS directory. QE requires the FFTW library - aside from this,
-+the application installs its other dependencies automatically, hence no further configuration is needed.
-+
-+## Running Experiments
-+
-+This distribution comes with two different sample configurations: 
-+
-+* Electronic structure calculation for SrVO3 Perovskite (__srvo3.scf.in__ within in.SrVO3 directory)
-+* Electronic structure calculation for Aluminium Arsenide (__alas.scf.efield2.in__ within in.AlAs directory)
-+
-+Please note that both simulations require extra pseudopotentials files that need to be downloaded externally. This can be performed automatically
-+by running the __run\_example__ script within the __PW/examples/example14__ and __PW/examples/example10__ directories respectively.
-+
-+In order to run a simulation, please create a new sub-directory within the chosen configuration's directory - this will contain all output files. 
-+Here is an example for the execution of an AlAs simulation:
-+
-+```
-+cd in.AlAs
-+mkdir out && cd out
-+OMP_NUM_THREADS=1 mpirun -np 1 ../../bin/pw.x -i ../alas.scf.efield2.in
-+```
-+
-+Each of the sample input configurations comes with a corresponding shell script for testing purposes (e.g., __QE-test-AlAs.env__ for the AlAs configuration). These are meant to be used in conjunction with the HDFIT runner script for HPC applications.
-+
- ## USAGE
- Quick installation instructions for the impatient. Go to the directory 
- where this file is. Using "make"
 diff --git a/UtilXlib/error_handler.f90 b/UtilXlib/error_handler.f90
 index 5f1425461..5e66538fc 100644
 --- a/UtilXlib/error_handler.f90

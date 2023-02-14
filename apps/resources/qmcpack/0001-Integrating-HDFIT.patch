@@ -1,69 +1,15 @@
-From b06c8cc22211339e8fe1f5ab257ec32a10c4539a Mon Sep 17 00:00:00 2001
+From 6d582bcb29a6b2f462778bedb0926f3254f47f3d Mon Sep 17 00:00:00 2001
 From: Alessio Netti <alessio.netti@intel.com>
 Date: Mon, 28 Feb 2022 10:24:40 +0100
 Subject: [PATCH] Integrating HDFIT
 
 ---
- README.md                | 42 ++++++++++++++++++
  src/Message/AppAbort.cpp | 10 +++++
  src/QMCApp/qmcapp.cpp    | 92 +++++++++++++++++++++++++++++++++++++++-
  src/faultInjector.h      | 45 ++++++++++++++++++++
- 4 files changed, 188 insertions(+), 1 deletion(-)
+ 3 files changed, 146 insertions(+), 1 deletion(-)
  create mode 100644 src/faultInjector.h
 
-diff --git a/README.md b/README.md
-index dddb13110..f7a7a0ca1 100644
---- a/README.md
-+++ b/README.md
-@@ -14,6 +14,48 @@ atoms, molecules, 2D nanomaterials and solids. The solid-state capabilities incl
- QMCPACK is expected to run well on workstations through to the latest generation supercomputers. Besides high performance,
- particular emphasis is placed on code quality and reproducibility.
- 
-+# Important Information for HDFIT Integration
-+
-+This version of QMCPack is instrumented to perform fault injection based on the custom HDFIT OpenBLAS library. Here we describe the
-+overall compilation and execution process.
-+
-+## Compilation
-+
-+Compiling this is the same as compiling the standard QMCPack distribution - for most use cases, the following commands will work well:
-+
-+```
-+cd build
-+cmake -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpicxx -DENABLE_SOA=1 -DQMC_MIXED_PRECISION=0 -DBLAS_openblas_LIBRARY=PATH_TO_CUSTOM_OPENBLAS_LIB  -DENABLE_OMP_TASKLOOP=OFF ..
-+make -j 8
-+```
-+
-+Replace __PATH\_TO\_CUSTOM\_OPENBLAS\_LIB__ with the path to the HDFIT OpenBLAS .so file. Note that this version of QMCPack will not rely on 
-+OpenMP thread parallelism, and will be exclusively MPI-based. QMCPack requires the LibXML, FFTW, HDF5 and BOOST libraries (headers included). If these dependencies are 
-+installed to non-standard paths, cmake provides flags in order to point to them (e.g., -DFFTW\_LIBRARIES and -DFFTW\_INCLUDE\_DIR for FFTW).
-+
-+In some cases, specifying -DBLAS\_openblas\_LIBRARY may not be enough to force QMCPack to use a custom OpenBLAS library. In these cases, try specifying the -DBLAS\_blas\_LIBRARY option as well.
-+
-+## Running Experiments
-+
-+This distribution comes with two different sample configurations: 
-+
-+* Nickel Oxide with 32 atoms (__NiO-fcc-S8-dmc.xml__ within in.NiO8 directory, requires __NiO-fcc-supertwist111-supershift000-S8.h5__ file)
-+* Nickel Oxide with 64 atoms (__NiO-fcc-S8-dmc.xml__ within in.NiO16 directory, requires __NiO-fcc-supertwist111-supershift000-S16.h5__ file)
-+
-+Please note that the extra files required for the Nickel Oxide simulations, which are to be placed in the same directory as the respective .xml
-+input files, can be found at https://anl.app.box.com/s/pveyyzrc2wuvg5tmxjzzwxeo561vh3r0
-+
-+In order to run a simulation, please create a new sub-directory within the chosen configuration's directory - this will contain all output files. 
-+Here is an example for the execution of a Nickel Oxide simulation using 64 atoms:
-+
-+```
-+cd in.NiO16
-+mkdir out && cd out
-+OMP_NUM_THREADS=1 mpirun -np 1 ../../build/bin/qmcpack ../NiO-fcc-S16-dmc.xml
-+```
-+
-+Each of the sample input configurations comes with a corresponding shell script for testing purposes (e.g., __QMCPACK-test-NiO16.env__ for the 64-atom Nickel Oxide configuration). These are meant to be used in conjunction with the HDFIT runner script for HPC applications.
-+
- # Obtaining and installing QMCPACK
- 
-  Obtain the latest release from https://github.com/QMCPACK/qmcpack/releases or clone the development source from
 diff --git a/src/Message/AppAbort.cpp b/src/Message/AppAbort.cpp
 index ce6178cec..4877065b7 100644
 --- a/src/Message/AppAbort.cpp
@@ -299,5 +245,5 @@ index 000000000..c93a7d370
 +
 +#endif /* INTERFACE_FAULTINJECTOR_H_ */
 -- 
-2.34.1
+2.25.1
 

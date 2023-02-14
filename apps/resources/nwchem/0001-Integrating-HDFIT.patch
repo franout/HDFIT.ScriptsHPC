@@ -1,75 +1,15 @@
-From 9d1eb4cfb9c70c72e8f05ce78efe9d41286efc7f Mon Sep 17 00:00:00 2001
+From b5a399c6d65950d92f5d096ab8d8a35d88289bb1 Mon Sep 17 00:00:00 2001
 From: "Netti, Alessio" <alessio.netti@intel.com>
 Date: Mon, 4 Apr 2022 16:41:24 +0200
 Subject: [PATCH] Integrating HDFIT
 
 ---
- README.md                 |  48 ++++++++++++++
  src/GNUmakefile           |   9 +--
  src/nwchem.F              | 133 ++++++++++++++++++++++++++++++++++++--
  src/peigs/src/f77/xstop.f |  23 +++++++
  src/util/errquit.F        |  22 +++++++
- 5 files changed, 227 insertions(+), 8 deletions(-)
+ 4 files changed, 179 insertions(+), 8 deletions(-)
 
-diff --git a/README.md b/README.md
-index 4ca494e813..1837d9a7a1 100644
---- a/README.md
-+++ b/README.md
-@@ -19,6 +19,54 @@
- NWChem is actively developed by a consortium of developers and maintained by the Environmental Molecular Sciences Laboratory (EMSL), a US DOE Office of Science User Facility
- located at the Pacific Northwest National Laboratory (PNNL) in Washington State
- 
-+# Important Information for HDFIT Integration
-+
-+This version of NWChem is instrumented to perform fault injection based on the custom HDFIT OpenBLAS library. Here we describe the
-+overall compilation and execution process.
-+
-+## Compilation
-+
-+Compiling this is the same as compiling the standard NWChem distribution - for most use cases, the following commands will work well:
-+
-+```
-+export NWCHEM_TOP=$HOME/nwchem
-+export NWCHEM_TARGET=LINUX64
-+export USE_MPI=y
-+export USE_MPIF=y
-+export NWCHEM_MODULES="all"
-+export BLASOPT="-LPATH_TO_CUSTOM_OPENBLAS_LIB -lopenblas"
-+export LAPACK_LIB="-LPATH_TO_CUSTOM_OPENBLAS_LIB -lopenblas"
-+export BLAS_SIZE=4
-+
-+cd src
-+rm -f 64_to_32
-+make nwchem_config
-+make 64_to_32
-+make
-+```
-+
-+Replace __PATH\_TO\_CUSTOM\_OPENBLAS\_LIB__ with the path to the main OpenBLAS directory. The commands above assume that the nwchem repository
-+has been cloned under __nwchem__ in the user's home directory. If not, change the __NWCHEM\_TOP__ environment variable accordingly. Aside from 
-+BLAS and MPI, NWCHEM does not have any specific additional dependencies.
-+
-+## Running Experiments
-+
-+This distribution comes with two different sample configurations: 
-+
-+* 16-atom Sodium Car-Parrinello simulation (__Na16.nw__ within in.Na16 directory)
-+* 3-Carboxybenzisoxazole quantum molecular dynamics simulation (__3carbo\_dft.nw__ within in.3carbo directory)
-+
-+In order to run a simulation, please create a new sub-directory within the chosen configuration's directory - this will contain all output files. 
-+Here is an example for the execution of a 3-Carbo simulation:
-+
-+```
-+cd in.3carbo
-+mkdir out && cd out
-+OMP_NUM_THREADS=1 mpirun -np 1 ../../bin/LINUX64/nwchem ../3carbo_dft.nw
-+```
-+
-+Each of the sample input configurations comes with a corresponding shell script for testing purposes (e.g., __NWCHEM-test-3carbo.env__ for the 3-Carbo configuration). These are meant to be used in conjunction with the HDFIT runner script for HPC applications.
-+
- ### Scalable computational chemistry tools
- 
- Source download instructions
 diff --git a/src/GNUmakefile b/src/GNUmakefile
 index 1b4fdfc325..02727ec691 100644
 --- a/src/GNUmakefile

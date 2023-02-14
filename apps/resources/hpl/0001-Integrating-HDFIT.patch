@@ -1,114 +1,6 @@
-diff -ruN hpl-2.3/README HDFIT.HPL/README
---- hpl-2.3/README	1970-01-01 05:00:00.000000000 +0000
-+++ HDFIT.HPL/README	1970-01-01 00:00:00.000000000 +0000
-@@ -1,32 +0,0 @@
--==============================================================
-- High Performance Computing Linpack Benchmark (HPL)
-- HPL - 2.3 - December 2, 2018
--==============================================================
--
-- HPL is a software package that solves a (random) dense linear
-- system  in   double  precision  (64   bits)   arithmetic   on 
-- distributed-memory  computers.   It can thus be regarded as a
-- portable as well as  freely  available implementation  of the
-- High Performance Computing Linpack Benchmark.
--
-- The  HPL  software  package requires the availibility on your
-- system of an implementation of the  Message Passing Interface
-- MPI  (1.1 compliant).  An  implementation of either the Basic
-- Linear Algebra Subprograms  BLAS  or the  Vector Signal Image
-- Processing Library VSIPL is also needed.  Machine-specific as
-- well as generic implementations of MPI, the  BLAS  and  VSIPL
-- are available for a large variety of systems.
--
-- Install See the file INSTALL in this directory.
-- -------
--
-- Tuning  See the file TUNING in this directory.
-- ------
--
-- Bugs  Known  problems and bugs with this release are documen-
-- ----  ted in the file hpl/BUGS.
--
-- Check out  the website  www.netlib.org/benchmark/hpl  for the
-- latest information.
--
--==============================================================
-diff -ruN hpl-2.3/README.md HDFIT.HPL/README.md
---- hpl-2.3/README.md	1970-01-01 00:00:00.000000000 +0000
-+++ HDFIT.HPL/README.md	2022-09-23 07:42:57.442075473 +0000
-@@ -0,0 +1,68 @@
-+# Important Information for HDFIT Integration
-+
-+This version of HPL is instrumented to perform fault injection based on the custom HDFIT OpenBLAS library. Here we describe the
-+overall compilation and execution process.
-+
-+## Compilation
-+
-+Compiling this is the same as compiling the normal HPL benchmark - for most use cases, the following commands will work well:
-+
-+```
-+./configure LDFLAGS="-LPATH_TO_CUSTOM_OPENBLAS_LIB" LIBS="-lopenblas"
-+make
-+```
-+
-+Replace __PATH\_TO\_CUSTOM\_OPENBLAS\_LIB__ with the path to the main OpenBLAS directory. Save for MPI, HPL does not have any additional dependencies.
-+
-+## Running Experiments
-+
-+This distribution comes with two different sample configurations:
-+
-+* A small configuration (__HPL.dat__ within in.small directory)
-+* A larger configuration (__HPL.dat__ within in.large directory)
-+
-+Here is an example for the execution of a small HPL run:
-+
-+```
-+cd in.small
-+OMP_NUM_THREADS=1 mpirun -np 1 ../testing/xhpl HPL.dat
-+```
-+
-+Each of the sample input configurations comes with a corresponding shell script for testing purposes (e.g., __HPL-test-small.env__ for the small HPL configuration). These are meant to be used in conjunction with the HDFIT runner script for HPC applications.
-+
-+# High-Performance Linpack
-+
-+```
-+==============================================================
-+ High Performance Computing Linpack Benchmark (HPL)
-+ HPL - 2.3 - December 2, 2018
-+==============================================================
-+
-+ HPL is a software package that solves a (random) dense linear
-+ system  in   double  precision  (64   bits)   arithmetic   on
-+ distributed-memory  computers.   It can thus be regarded as a
-+ portable as well as  freely  available implementation  of the
-+ High Performance Computing Linpack Benchmark.
-+
-+ The  HPL  software  package requires the availibility on your
-+ system of an implementation of the  Message Passing Interface
-+ MPI  (1.1 compliant).  An  implementation of either the Basic
-+ Linear Algebra Subprograms  BLAS  or the  Vector Signal Image
-+ Processing Library VSIPL is also needed.  Machine-specific as
-+ well as generic implementations of MPI, the  BLAS  and  VSIPL
-+ are available for a large variety of systems.
-+
-+ Install See the file INSTALL in this directory.
-+ -------
-+
-+ Tuning  See the file TUNING in this directory.
-+ ------
-+
-+ Bugs  Known  problems and bugs with this release are documen-
-+ ----  ted in the file hpl/BUGS.
-+
-+ Check out  the website  www.netlib.org/benchmark/hpl  for the
-+ latest information.
-+
-+==============================================================
-+```
 diff -ruN hpl-2.3/testing/faultInjector.h HDFIT.HPL/testing/faultInjector.h
---- hpl-2.3/testing/faultInjector.h	1970-01-01 00:00:00.000000000 +0000
-+++ HDFIT.HPL/testing/faultInjector.h	2022-09-23 07:42:57.462075472 +0000
+--- hpl-2.3/testing/faultInjector.h	1970-01-01 01:00:00.000000000 +0100
++++ HDFIT.HPL/testing/faultInjector.h	2022-11-25 10:02:59.087185019 +0100
 @@ -0,0 +1,46 @@
 +/*
 + * Copyright (C) 2022 Intel Corporation
@@ -157,8 +49,8 @@ diff -ruN hpl-2.3/testing/faultInjector.h HDFIT.HPL/testing/faultInjector.h
 +
 +#endif /* INTERFACE_FAULTINJECTOR_H_ */
 diff -ruN hpl-2.3/testing/ptest/HPL_pddriver.c HDFIT.HPL/testing/ptest/HPL_pddriver.c
---- hpl-2.3/testing/ptest/HPL_pddriver.c	1970-01-01 05:00:00.000000000 +0000
-+++ HDFIT.HPL/testing/ptest/HPL_pddriver.c	2022-09-23 07:42:57.462075472 +0000
+--- hpl-2.3/testing/ptest/HPL_pddriver.c	1970-01-01 06:00:00.000000000 +0100
++++ HDFIT.HPL/testing/ptest/HPL_pddriver.c	2022-11-25 10:02:59.087185019 +0100
 @@ -5,6 +5,7 @@
   *    University of Tennessee, Knoxville                                
   *    Innovative Computing Laboratory                                 

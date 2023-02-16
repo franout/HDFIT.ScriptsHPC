@@ -1,7 +1,7 @@
-# HDFIT HPC Applications Suite for LLVM
+# HDFIT + LLTFI HPC Applications Suite
 
 This directory contains scripts to clone and build a set of HPC applications supported by HDFIT, as well as prepare the input configurations 
-available for each of them. This sub-directory focuses on LLVM-based compiler instrumentation for FPU fault injection.
+available for each of them. This sub-directory focuses on LLVM-based compiler instrumentation for FPU fault injection: this is achieved through integration between the HDFIT and [LLTFI](https://github.com/DependableSystemsLab/LLTFI) toolchains.
 
 ## Available Applications
 
@@ -16,9 +16,20 @@ As of November 11th 2022, the following applications are supplied with HDFIT:
 
 ## External Dependencies
 
-Compiling the HPC applications requires a basic set of generic dependencies. These are __make__, __cmake__, __autoconf__, __pkgconf__ and a functional __LLVM__ and __clang__ toolchain. LLVM version 15.0 is required as minimum. Furthermore, a valid __MPI__ installation is required (OpenMPI is recommended). The specific additional dependencies for each HPC application are compiled automatically as part of the build process, and no user action is required. A functional __Python 3__ installation is recommended.
+Compiling the HPC applications requires a basic set of generic dependencies. These are __make__, __cmake__, __autoconf__, __pkgconf__ and a functional __LLVM__ and __clang__ toolchain (at least version 15.0, commit 9778ec057cf4, with both source code and binaries). Furthermore, a valid __MPI__ installation is required (OpenMPI is recommended). The specific additional dependencies for each HPC application are compiled automatically as part of the build process, and no user action is required.
 
-Before attempting to compile the HPC applications, make sure to properly configure the __config.mk__ file, as indicated in the main [README](../README.md) document. In order to compile the applications in this section of the reliability benchmark, both a valid OpenBLAS library (__OPENBLAS\_ROOT__ variable) and LLTFI installation (__LLTFI\_ROOT__ variable) are required. The steps to build LLTFI are described in detail on its GitHub [repository](https://github.com/DependableSystemsLab/LLTFI).
+Before attempting to compile the HPC applications, make sure to properly configure the __config.mk__ file, as indicated in the main [README](../README.md) document. In order to compile the applications in this section of the reliability benchmark, both a valid OpenBLAS library (__OPENBLAS\_ROOT__ variable) and LLTFI installation (__LLTFI\_ROOT__ variable) are required.
+
+### LLTFI Compilation
+
+The steps to build LLTFI are described in detail on its GitHub [repository](https://github.com/DependableSystemsLab/LLTFI). Please note that a custom version of LLTFI is necessary, including all integration with HDFIT, which can be found in a dedicated __HDFIT__ branch of the repository. For convenience, we also include as part of this repository a git patch and an associated makefile to clone LLTFI, apply all HDFIT-specific changes and then build the toolchain automatically. These files can be found under the __lltfi__ directory. Compilation can be simply achieved as follows:
+
+```
+cd lltfi
+make
+```
+
+Users should point to the appropriate LLVM (at least version 15.0, as mentioned above) source code and install directories by exporting the __LLVM\_SRC\_ROOT__ and __LLVM\_DST\_ROOT__ environment variables respectively. In addition, a functional __Python 3__ installation, the __PyYAML__ module, __Ninja__ and __libprotoc__ are required. For further details, please refer to the LLTFI documentation.
 
 ## Compilation Steps
 

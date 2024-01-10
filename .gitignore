@@ -1,0 +1,25 @@
+apps/cp2k/
+apps/hpl/
+apps/qe/
+apps/qmcpack/
+apps/remhos/
+apps/nwchem/
+
+
+apps_llvm/qmcpack/ 
+apps_llvm/gromacs/ 
+apps_llvm/seissol/ 
+apps_llvm/milc/ 
+apps_llvm/miniw/
+apps_llvm/gadget/
+
+## dependnacies for apps llvm 
+apps_llvm/lltfi/lltfi/
+
+## do not include compiled dependancies 
+apps/deps/
+
+
+## pychaches
+plot/__pycache__/
+test/__pycache__/

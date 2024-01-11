@@ -1,15 +1,16 @@
 # Build directories of the HDFIT OpenBLAS and LLTFI distributions - do not add line breaks!
-OPENBLAS_ROOT = PATH_TO_OPENBLAS_INSTALLATION
-LLTFI_ROOT = PATH_TO_LLTFI_INSTALLATION
+OPENBLAS_ROOT ?= PATH_TO_OPENBLAS_INSTALLATION
+LLTFI_ROOT ?= PATH_TO_LLTFI_INSTALLATION
 
 # MPI compilers plus other settings
-MPICC = mpicc
-MPICXX = mpicxx
-CC = clang
-CXX = clang++
+MPICC ?=  mpicc
+MPICXX ?=  mpicxx
+CC ?= clang
+CXX ?= clang++
 
-MAKE_JOBS = 8
+MAKE_JOBS = 40
 
+  
 # --------- DO NOT EDIT PAST THIS POINT ---------
 
 LLTFI_LINKER = -L$(LLTFI_ROOT)/runtime_lib/ -lllfi-rt

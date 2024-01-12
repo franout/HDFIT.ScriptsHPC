@@ -31,9 +31,18 @@ export FI_RESDIR_SUP=$FI_BASEDIR/"out."$FI_CONFNAME
 export FI_CONFDIR=$FI_BASEDIR/"in."$FI_CONFNAME
 # Experiment name
 export FI_TASKNAME="HDFIT_${FI_APPNAME}_${FI_CONFNAME}_$(date +%d-%m-%Y)"
-# Parsing the paths to required libraries from the parent config.mk file
+# Parsing the paths to required libraries from the parent config.mk file (or check env variables)
+if [ -n "${OPENBLAS_PATH}" ] ; then 
 OPENBLAS_PATH=$(cat $FI_THISDIR/../config.mk | grep -aoP "(?<=OPENBLAS_ROOT = ).*")
+else
+OPENBLAS_PATH=${OPENBLAS_ROOT}
+fi 
+
+if [ -n "${LLTFI_PATH}" ] ; then 
 LLTFI_PATH=$(cat $FI_THISDIR/../config.mk | grep -aoP "(?<=LLTFI_ROOT = ).*")
+else
+LLTFI_PATH=${LLTFI_ROOT}
+fi 
 export FI_PRELOAD="$OPENBLAS_PATH/libopenblas.so:$LLTFI_PATH/runtime_lib/libllfi-rt.so"
 
 # Performs special pre-processing for some applications' input

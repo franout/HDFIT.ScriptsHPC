@@ -1,8 +1,5 @@
 include ../../config.mk
 
-## must be compiled with gcc !! or clang version > 15.0?
-undefine CC
-undefine CXX
 
 hypre_REPO = https://github.com/hypre-space/hypre hypre && cd hypre && git checkout 14ee602fbf4655715c904fa375165a4565b735bb
 mfem_REPO = https://github.com/mfem/mfem.git mfem && cd mfem && git checkout e6c39635c9d21189ff7a9984aa138662059e9b4b
@@ -52,7 +49,8 @@ parmetis/.compiled: parmetis/.downloaded
 
 yaml-cpp/.compiled: yaml-cpp/.cloned
 	@echo "Compiling $(@D)..."
-	mkdir -p $(@D)/build && cd $(@D)/build && cmake -DCMAKE_INSTALL_PREFIX=$(CURDIR)/install \
+	## ned to compile with gcc 
+	mkdir -p $(@D)/build && cd $(@D)/build && cmake -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_INSTALL_PREFIX=$(CURDIR)/install \
 	-DCMAKE_CXX_FLAGS="-Wno-error=maybe-uninitialized" ../ && make -j $(MAKE_JOBS) && make install
 	@touch $(@D)/.compiled
 

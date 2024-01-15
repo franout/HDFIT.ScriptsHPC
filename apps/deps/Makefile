@@ -1,6 +1,8 @@
 include ../../config.mk
 
-
+## franout: most of the libs can be compiled with clang15, 
+## 			however, hdf5 and zlig in someway raise errors
+##			workaround is to  ,since CC and CXX are env based 
 hypre_REPO = https://github.com/hypre-space/hypre hypre && cd hypre && git checkout 14ee602fbf4655715c904fa375165a4565b735bb
 mfem_REPO = https://github.com/mfem/mfem.git mfem && cd mfem && git checkout e6c39635c9d21189ff7a9984aa138662059e9b4b
 gklib_REPO = https://github.com/KarypisLab/GKlib gklib && cd gklib && git checkout a7f8172703cf6e999dd0710eb279bba513da4fec
@@ -129,12 +131,14 @@ boost/.compiled: boost/.downloaded
 	@touch $(@D)/.compiled
 
 hdf5/.compiled: hdf5/.downloaded
+	# broken for clang 15 - needed gcc 
 	@echo "Compiling $(@D)..."
 	cd $(@D)/hdf5-1.10.9 && ./configure --enable-parallel --prefix=$(CURDIR)/install
 	cd $(@D)/hdf5-1.10.9 && make -j $(MAKE_JOBS) && make install
 	@touch $(@D)/.compiled
 
 zlib/.compiled: zlib/.downloaded
+	# broken for clang 15 - needed gcc
 	@echo "Compiling $(@D)..."
 	cd $(@D)/zlib-1.2.12 && ./configure
 	cd $(@D)/zlib-1.2.12 && make

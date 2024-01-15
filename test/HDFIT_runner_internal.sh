@@ -25,7 +25,7 @@ source $1
 export BLASFI_OUTPUT=$FI_STREAM
 # Base directory of the application
 export FI_BASEDIR=$(dirname $(realpath "$1"))
-# Output directory
+# Output directory ## todo edit for custom output dir 
 export FI_RESDIR_SUP=$FI_BASEDIR/"out."$FI_CONFNAME
 # Input directory
 export FI_CONFDIR=$FI_BASEDIR/"in."$FI_CONFNAME

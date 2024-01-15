@@ -40,7 +40,12 @@ SHELL = /bin/bash
 
 %/.touched: %/.cloned
 	@echo "Copying data dependencies for $(@D)..."
+	## add link mode 
+ifeq ($(SDENV_COPY_DIR_LINK_MODE),true)
+	ln -s resources/$(@D)/inputs/* $(@D)/ || :
+else
 	cp -r resources/$(@D)/inputs/* $(@D)/ || :
+endif 
 	@touch $(@D)/.touched
 
 %/.patched: %/.touched 

@@ -10,7 +10,7 @@ CXX ?= clang++
 
 MAKE_JOBS = 40
 
-  
+
 # --------- DO NOT EDIT PAST THIS POINT ---------
 
 LLTFI_LINKER = -L$(LLTFI_ROOT)/runtime_lib/ -lllfi-rt
@@ -39,11 +39,12 @@ SHELL = /bin/bash
 	@touch $(@D)/.downloaded
 
 %/.touched: %/.cloned
-	@echo "Copying data dependencies for $(@D)..."
-	## add link mode 
 ifeq ($(SDENV_COPY_DIR_LINK_MODE),true)
-	ln -s resources/$(@D)/inputs/* $(@D)/ || :
+	@echo "Linking data dependencies for $(@D)..."
+	@echo "Linking data dependencies from $(CURDIR)/resources/$(@D)/inputs/..."
+	ln -s $(CURDIR)/resources/$(@D)/inputs/* $(@D)/ || :
 else
+	@echo "Copying data dependencies for $(@D)..."
 	cp -r resources/$(@D)/inputs/* $(@D)/ || :
 endif 
 	@touch $(@D)/.touched

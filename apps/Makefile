@@ -1,4 +1,4 @@
-include ../config.mk
+include $(SDENV_APPLICATIONS_DIR)/hpc/config.mk
 
 # List of HPC applications to be compiled
 INSTALL_APPS = qmcpack cp2k nwchem qe remhos hpl
@@ -33,8 +33,8 @@ cp2k: cp2k/.patched
 	cd deps && make zlib/.compiled libfftw/.compiled hdf5/.compiled
 	cd $(@)/tools/toolchain && export PATH=$(OPENBLAS_ROOT):$(CURDIR)/deps/install/bin:"$(PATH)" \
 	&& export LD_LIBRARY_PATH=$(OPENBLAS_ROOT):$(CURDIR)/deps/install/lib:"$(LD_LIBRARY_PATH)" \
-	&& ./install_cp2k_toolchain.sh --with-openblas=system --with-cmake=system --with-hdf5=$(SDENV_INSTALLED_DEPS_DIR) \
-	--with-elpa=no --with-pexsi=no --with-cosma=no --with-sirius=no --with-spfft=no --with-spglib=no --with-fftw=$(SDENV_INSTALLED_DEPS_DIR) && cp install/arch/* ../../arch/
+	&& ./install_cp2k_toolchain.sh --with-openblas=system --with-cmake=system --with-hdf5=$(SDENV_APPLICATION_INSTALLED_DEPS_DIR) \
+	--with-elpa=no --with-pexsi=no --with-cosma=no --with-sirius=no --with-spfft=no --with-spglib=no --with-fftw=$(SDENV_APPLICATION_INSTALLED_DEPS_DIR) && cp install/arch/* ../../arch/
 	cd $(@) && source tools/toolchain/install/setup && export LIBRARY_PATH=$(CURDIR)/deps/zlib/zlib-1.2.12:"$(LIBRARY_PATH)" \
 	&& make -j $(MAKE_JOBS) ARCH=local VERSION="psmp"
 

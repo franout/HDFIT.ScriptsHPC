@@ -1,4 +1,4 @@
-include ../../config.mk
+include $(SDENV_APPLICATIONS_DIR)/hpc/config.mk
 
 ## franout: most of the libs can be compiled with clang15, 
 ## 			however, hdf5 and zlig in someway raise errors

@@ -1,4 +1,4 @@
-include ../config.mk
+include $(SDENV_APPLICATIONS_DIR)/hpc/config.mk
 
 # List of HPC applications to be compiled
 INSTALL_APPS = qmcpack gromacs seissol milc miniw

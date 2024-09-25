@@ -24,3 +24,6 @@ apps/deps/
 ## pychaches
 plot/__pycache__/
 test/__pycache__/
+
+apps/results/
+apps_llvm/results/

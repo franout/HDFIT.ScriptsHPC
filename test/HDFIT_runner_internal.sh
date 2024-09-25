@@ -24,8 +24,15 @@ source $1
 # Exporting proper output redirection environment variable
 export BLASFI_OUTPUT=$FI_STREAM
 # Base directory of the application
-export FI_BASEDIR=$(dirname $(realpath "$1"))
-# Output directory ## todo edit for custom output dir 
+export FI_BASEDIR=$2
+
+if $3 ; then 
+golden_simulation=true
+else 
+golden_simulation=false
+fi 
+
+# Output directory 
 export FI_RESDIR_SUP=$FI_BASEDIR/"out."$FI_CONFNAME
 # Input directory
 export FI_CONFDIR=$FI_BASEDIR/"in."$FI_CONFNAME
@@ -87,11 +94,20 @@ doApplicationRun()
 	else
 		CPU_MAP="--map-by core"
 	fi
-
+	export evcd_file_path=$FI_RESDIR"/run$1.evcd"
 	TIMESTART=$(date +%s%3N)
+	if ${golden_simulation} ; then 
+	## no timeout 
+	echo "mpirun -x LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$FI_THISDIR/../apps/deps/install/lib \
+		       -x LD_PRELOAD=$FI_PRELOAD -np $FI_MPIRANKS $CPU_MAP $FI_COMMAND $FI_INPUT > $FI_RESDIR/run$1.log 2>&1"
+	mpirun -x LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$FI_THISDIR/../apps/deps/install/lib \
+		       -x LD_PRELOAD=$FI_PRELOAD -np $FI_MPIRANKS $CPU_MAP $FI_COMMAND $FI_INPUT > $FI_RESDIR/run$1.log 2>&1
+	else 
+	echo "timeout -k 60s $FI_TIMEOUT mpirun -x LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$FI_THISDIR/../apps/deps/install/lib \
+		       -x LD_PRELOAD=$FI_PRELOAD -np $FI_MPIRANKS $CPU_MAP $FI_COMMAND $FI_INPUT > $FI_RESDIR/run$1.log"
 	timeout -k 60s $FI_TIMEOUT mpirun -x LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$FI_THISDIR/../apps/deps/install/lib \
 		       -x LD_PRELOAD=$FI_PRELOAD -np $FI_MPIRANKS $CPU_MAP $FI_COMMAND $FI_INPUT > $FI_RESDIR/run$1.log 2>&1
-
+	fi 
 	FI_RETCODE=$?
 	echo $FI_RETCODE > $FI_RESDIR/run$1.retcode
 	echo $(( $(date +%s%3N) - $TIMESTART )) > $FI_RESDIR/run$1.time
@@ -171,6 +187,7 @@ echo "    Output stream: $FI_STREAM"
 echo "    Experiment location: $FI_RESDIR_SUP"
 echo "----------------------------------------------"
 
+if ${golden_simulation}; then 
 # ----- GOLDEN RUN -----
 export BLASFI_MODE="NONE"
 export BLASFI_CORRUPTION="FLIP"
@@ -178,8 +195,10 @@ export BLASFI_BITS="EVERYWHERE"
 export BLASFI_OPSCNT=1
 export FI_RESDIR=$FI_RESDIR_SUP/"golden"
 
-echo "Performing golden runs..."
-doExperiment 1 1
+echo "Performing golden run..."
+export evcd_file_path=$FI_RESDIR"/golden_run.evcd"
+
+doExperiment $FI_NUMRUNS $FI_PARRUNS
 
 # Checking outcome of golden run
 GOLDEN_RETCODE=$(cat $FI_RESDIR/run0.retcode 2>/dev/null)
@@ -192,12 +211,17 @@ elif [[ $GOLDEN_RETCODE -ne 0 ]]; then
 	exit 0
 fi
 
+fi 
+
+## TO BE IMPLEMENTED 
+if false ; then 
 # Extracting number of BLAS operations from golden run
 export BLASFI_OPSCNT=$(cat $FI_RESDIR/run0.log | grep -aoP "(?<=Rank 0: OpsCnt = )[0-9]+")
 # Resolving wildcards and computing expanded list of output files
 if [ ! -z "$FI_OUTPUT" ]; then
 	export FI_OUTPUT_EXP=$(cd $FI_RESDIR/run0.DAT && ls -d $FI_OUTPUT | tr "\n" " ")
 fi
+
 
 # ----- TRANSIENT FAULTS -----
 export BLASFI_MODE="TRANSIENT"
@@ -208,5 +232,7 @@ export FI_RESDIR="$FI_RESDIR_SUP/fi-transient"
 echo "Performing transient faults experiment..."
 doExperiment $FI_NUMRUNS $FI_PARRUNS
 echo "Computing summary CSV file..."
-python3 $FI_THISDIR/HDFIT_computeCSV.py $FI_APPNAME $FI_RESDIR $BLASFI_OPSCNT $FI_OUTPUT_EXP > "$FI_RESDIR_SUP/$FI_TASKNAME.csv"
+echo "${PYTHON} $FI_THISDIR/HDFIT_computeCSV.py $FI_APPNAME $FI_RESDIR $BLASFI_OPSCNT $FI_OUTPUT_EXP > $FI_RESDIR_SUP/$FI_TASKNAME.csv"
+${PYTHON} $FI_THISDIR/HDFIT_computeCSV.py $FI_APPNAME $FI_RESDIR $BLASFI_OPSCNT $FI_OUTPUT_EXP > "$FI_RESDIR_SUP/$FI_TASKNAME.csv"
 
+fi 

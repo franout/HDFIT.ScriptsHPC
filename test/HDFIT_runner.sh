@@ -18,9 +18,9 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 
 # Checking arguments
-if [ "$#" -ne 1 ]
+if [ "$#" -ne 3 ]
 then
-  echo "Usage: $0 <TEST SCRIPT>" >&2
+  echo "Usage: $0 <TEST SCRIPT> <ENV SETTINGS> <OUTPUT DIR> <GOLDEN_SIM_FLAG>" >&2
   exit 1
 fi
 

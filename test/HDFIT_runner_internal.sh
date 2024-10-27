@@ -58,7 +58,7 @@ doSpecialInput()
 	# HPL expects an HPL.dat file to be present in the cwd - so we need to
 	# create a symlink to said file in the upper directory
 	if [ $FI_APPNAME = "HPL" ]; then
-		ln -s ../HPL.dat HPL.dat 2>/dev/null
+		ln -s ${inputs_dir}/in.${FI_CONFNAME}/HPL.dat HPL.dat 2>/dev/null
 	fi
 }
 
@@ -68,10 +68,10 @@ doSpecialOutput()
         # The hack of all hacks to print DFT energy information in a sensible manner
         # Coded ad-hoc for the NWCHEM 3carbo_dft input with 16 atoms
         if [ $FI_APPNAME = "NWCHEM" ] && [ $FI_CONFNAME = "3carbo" ]; then
-                cat $FI_RESDIR/run$1.log | grep -a -A20 "DFT ENERGY GRADIENTS" > Bzisox_qmd.dft
+                cat $FI_RESDIR/run$1.log | grep -a -A20 "DFT ENERGY GRADIENTS" > $FI_RESDIR/Bzisox_qmd.dft
         # MILC only writes to stdout - creating an ad-hoc output file
         elif [ $FI_APPNAME = "MILC" ]; then
-                cat $FI_RESDIR/run$1.log > $FI_CONFNAME.sample-out
+                cat $FI_RESDIR/run$1.log > $FI_RESDIR/$FI_CONFNAME.sample-out
         # Converting the GROMACS binary format to text
         elif [ $FI_APPNAME = "GROMACS" ]; then
                 LD_PRELOAD=$FI_PRELOAD $FI_COMMAND dump -f traj.trr > traj.txt 2>/dev/null
@@ -94,7 +94,7 @@ doApplicationRun()
 	else
 		CPU_MAP="--map-by core"
 	fi
-	export evcd_file_path=$FI_RESDIR"/run$1.evcd"
+	export evcd_file_path=${SDENV_VULNERABILITY_INPUT_DIR}"/run$1_${FI_APPNAME}_${FI_CONFNAME}.evcd"
 	TIMESTART=$(date +%s%3N)
 	if ${golden_simulation} ; then 
 	## no timeout 
@@ -198,7 +198,7 @@ export FI_RESDIR=$FI_RESDIR_SUP/"golden"
 echo "Performing golden run..."
 export evcd_file_path=$FI_RESDIR"/golden_run.evcd"
 
-doExperiment $FI_NUMRUNS $FI_PARRUNS
+doExperiment 1  1 # $FI_NUMRUNS $FI_PARRUNS
 
 # Checking outcome of golden run
 GOLDEN_RETCODE=$(cat $FI_RESDIR/run0.retcode 2>/dev/null)
@@ -215,6 +215,19 @@ fi
 
 ## TO BE IMPLEMENTED 
 if false ; then 
+doExperiment 1 1 
+
+# Checking outcome of golden run
+GOLDEN_RETCODE=$(cat $FI_RESDIR/run0.retcode 2>/dev/null)
+if [[ ! -e $FI_RESDIR/run0.retcode ]]; then
+	echo "    ERROR: The golden run could not be executed. Cannot continue."
+	exit 0
+elif [[ $GOLDEN_RETCODE -ne 0 ]]; then
+	echo "    ERROR: The golden run failed with error code $GOLDEN_RETCODE. Cannot continue."
+	echo "    Check $FI_RESDIR/run0.log for details."
+	exit 0
+fi
+
 # Extracting number of BLAS operations from golden run
 export BLASFI_OPSCNT=$(cat $FI_RESDIR/run0.log | grep -aoP "(?<=Rank 0: OpsCnt = )[0-9]+")
 # Resolving wildcards and computing expanded list of output files

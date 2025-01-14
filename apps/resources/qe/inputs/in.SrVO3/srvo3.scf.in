@@ -4,7 +4,7 @@
     tstress            = .true., 
     tprnfor            = .true., 
     pseudo_dir         = '${app_dir}/${app}/pseudo/',
-    outdir             = '${output_dir}',
+    outdir             = '${output_dir}/',
     verbosity          = 'high'
  / 
  &system 

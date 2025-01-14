@@ -4,8 +4,8 @@
     prefix='alas',
     lelfield=.true.,
     nberrycyc=3
-    pseudo_dir='../../pseudo/',
-    outdir='./'
+    pseudo_dir='${app_dir}/${app}/pseudo/',
+    outdir='${output_dir}/'
     tprnfor=.true.,
     verbosity='high'
  /

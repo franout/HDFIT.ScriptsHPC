@@ -3,8 +3,8 @@
     prefix             = 'srvo3',
     tstress            = .true., 
     tprnfor            = .true., 
-    pseudo_dir         = '../../pseudo/',
-    outdir             = './',
+    pseudo_dir         = '${app_dir}/${app}/pseudo/',
+    outdir             = '${output_dir}',
     verbosity          = 'high'
  / 
  &system 
